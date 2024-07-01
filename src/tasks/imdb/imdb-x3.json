@@ -1,0 +1,15 @@
+{
+  "task_name": "imdb",
+  "stage": "x3",
+  "concepts": {
+    "relevant": {
+      "instruction": "Please analyze the posibility of the above sentences being a piece of movie review and rate it on a scale from 0.0 (not a movie review) to 1.0 (is a movie review for certain). The rating is:"
+    },
+    "positive": {
+      "instruction": "Please analyze the sentiment of the above movie review and rate it on a scale from 0.0 (completely negative) to 1.0 (completely positive). The rating is:"
+    },
+    "negative": {
+      "instruction": "Please analyze the sentiment of the above movie review and rate it on a scale from 0.0 (completely positive) to 1.0 (completely negative). The rating is:"
+    }
+  }
+}

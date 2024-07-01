@@ -1,0 +1,12 @@
+{
+  "task_name": "imdb",
+  "stage": "x2",
+  "labels": {
+    "0": {
+      "instruction": "The restaurant review in positive sentiment is: \""
+    },
+    "1": {
+      "instruction": "The restaurant review in negative sentiment is: \""
+    }
+  }
+}

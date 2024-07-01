@@ -1,0 +1,15 @@
+{
+  "task_name": "imdb",
+  "stage": "x3",
+  "concepts": {
+    "relevant": {
+      "instruction": "Rate the above sentences from 0 to 1, reflecting the possibility of them being a piece of movie review. Response only with a floating number."
+    },
+    "positive": {
+      "instruction": "Rate this movie review from 0 to 1, reflecting the possibility of it to be positive. Response only with a floating number."
+    },
+    "negative": {
+      "instruction": "Rate this movie review from 0 to 1, reflecting the possibility of it to be negative. Response only with a floating number."
+    }
+  }
+}

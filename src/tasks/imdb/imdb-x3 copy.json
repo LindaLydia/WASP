@@ -1,0 +1,15 @@
+{
+  "task_name": "imdb",
+  "stage": "x3",
+  "concepts": {
+    "relevant": {
+      "instruction": " A number between 0 to 1 that reflects the possibility of the sentence(s) given above being a movie review is: \""
+    },
+    "positive": {
+      "instruction": " A number between 0 to 1 that reflects the possibility of the sentence(s) given above being a movie review in positive sentiment is: \""
+    },
+    "negative": {
+      "instruction": " A number between 0 to 1 that reflects the possibility of the sentence(s) given above being a movie review in negative sentiment is: \""
+    }
+  }
+}

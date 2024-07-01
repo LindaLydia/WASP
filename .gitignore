@@ -1,3 +1,17 @@
+# personalized
+src/data/
+src/data_flip/
+src/data_new/
+src/data_*/
+src/figure/
+src/logging/
+src/results/
+src/temp*.txt
+src/temp*.py
+src/temp*.sh
+src/temp*.sh
+src/figure/distribution/embeddings/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
