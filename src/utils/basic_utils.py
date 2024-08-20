@@ -40,6 +40,7 @@ from torchtext.legacy import data
 # from torchtext import data
 
 from utils.bert_dataset import *
+from utils.constant import SMALL_MODEL_WITH_TOKENIZER
 
 def init_logging(log_file, stdout=False):
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(module)s: %(message)s',
@@ -116,13 +117,13 @@ def save_flipped_samples(args, new_data, file_name):
         print(f"{len(samples)=}")
         if args.small_model_name.upper() == 'LSTM':
             print(f"{len(new_data[im].examples)=}")
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             print(f"{len(new_data[im].idx)=}")
         with jsonlines.open(file_path, 'w') as writer:
             for _i, json_obj in enumerate(samples):
                 if args.small_model_name.upper() == 'LSTM':
                     json_obj['Y'] = new_data[im][_i].label
-                elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+                elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                     json_obj['Y'] = int(new_data[im].label[_i].item())
                 writer.write(json_obj)
         print(f"Finish writing {len(samples)} flipped samples into {file_path}")
@@ -166,7 +167,7 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
         for _i in range(len(total_data)):
             total_data[_i].idx = _i
         total_dataset = data.Dataset(total_data, datasets[0].fields)
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         _id = 0
         total_dataset = TokenizedDataset(
             file_path=(''),
@@ -248,7 +249,7 @@ def eval_get_loss(args, model, data, use_soft_label=False):
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         data_iter = DataLoader(data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
     loss_per_sample = torch.zeros((len(data),), dtype=torch.float32).to(args.device)
     error_per_sample = torch.zeros((len(data),), dtype=torch.float32).to(args.device)
@@ -336,7 +337,7 @@ def eval_get_pred(args, model, data, use_soft_label=False):
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         data_iter = DataLoader(data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
     loss_per_sample = torch.zeros((len(data),), dtype=torch.float32).to(args.device)
     error_per_sample = torch.zeros((len(data),), dtype=torch.float32).to(args.device)
@@ -443,7 +444,7 @@ def majority_voting_label(args, data_sample, mode_list, data_fields=None, origin
     #                 predicts = output.argmax(-1).reshape(-1)
     #                 # print("predicts", predicts)
     #                 pred_list.append(predicts[0].item())
-    # elif 'bert' in args.small_model_name.lower():
+    # elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
     #     for _j, model in enumerate(mode_list):
     #         if _j == origin_model_index:
     #             continue
@@ -499,7 +500,7 @@ def majority_voting_label(args, data_sample, mode_list, data_fields=None, origin
                     if _j == 0:
                         print(f"add additional: {labels[0].item()=}")
                         voting_tabel[labels[0].item()] += 1
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         for _j, model in enumerate(mode_list):
             if _j == origin_model_index:
                 continue
@@ -568,7 +569,7 @@ def minimax_voting(args, data_sample, mode_list, data_fields=None, origin_model_
                     # if _j == 0:
                     #     print(f"add additional: {labels[0].item()=}")
                     #     ballots[labels[0].item()] += 1
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         for _j, model in enumerate(mode_list):
             if _j == origin_model_index:
                 continue
@@ -654,7 +655,7 @@ def eval_get_predicts(args, model, data_iter, name, epoch=None, use_soft_label=F
                 correct_num += (predicts == labels).sum().item()
                 err_num += (predicts != labels).sum().item()
                 all_predicts.append(predicts)
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         with torch.no_grad():
             for i, batch in enumerate(data_iter):
                 inputs, attention_mask, labels, idx = batch
@@ -718,7 +719,7 @@ def run_divergence_calculation(args, models, dataset, use_soft_label=False):
             shuffle=False,
         )
         data_iter = list(data_iter)[0]
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         data_iter = DataLoader(dataset, batch_size=args.train_batch_size, shuffle=False)
 
 
@@ -922,6 +923,43 @@ def sample_dynamic_selection(confidence_score, variability_score, count, pool_si
         top_ambiguous_easy_to_learn_idx[model_idx].append(int(sample_idx))
     
     return top_ambiguous_easy_to_learn_idx
+
+
+def sample_error_decreased_selection(error_decrease, count, pool_size=40, is_random='Cartography'):
+    # print(f"{len(error_decrease)}")
+    error_decrease = [list(error_decrease[i].cpu().numpy()) for i in range(len(error_decrease))]
+    # print(f'{len(error_decrease[0])}')
+    # assert 1 == 0
+    error_decrease_idx = [[] for _ in range(len(error_decrease))]
+
+    model_sample_count = [len(error_decrease[i]) for i in range(len(error_decrease))]
+    accumulated_sample_count = [0]
+    error_decrease_flat = []
+    for i in range(len(error_decrease)):
+        accumulated_sample_count.append(accumulated_sample_count[-1]+model_sample_count[i])
+        error_decrease_flat += error_decrease[i]
+    error_decrease_flat = np.array(error_decrease_flat)
+
+    if is_random == 'random' or is_random == '': # 'random'.reaplace('influence','') and 'influence'.reaplace('influence','')
+        selected_indices = random.sample(range(accumulated_sample_count[-1]), (count*pool_size))
+    else:
+        ascending_indices = list(np.argsort(error_decrease_flat)) # from easy/hard-to-learn to ambiguous
+
+        if len(ascending_indices) >= (count*pool_size):
+            selected_indices = ascending_indices[-(count*pool_size):]
+        else:
+            selected_indices = ascending_indices
+
+    for ic in range(len(selected_indices)):
+        for im in range(len(accumulated_sample_count)-1):
+            if accumulated_sample_count[im] <= selected_indices[ic] < accumulated_sample_count[im+1]:
+                model_idx = im
+                break
+        sample_idx = selected_indices[ic] - accumulated_sample_count[model_idx]
+        print(f"{selected_indices[ic]=}, [{accumulated_sample_count[model_idx]}, {accumulated_sample_count[model_idx+1]}], {model_idx=}, {sample_idx=}")
+        error_decrease_idx[model_idx].append(int(sample_idx))
+    
+    return error_decrease_idx
 
 
 def sample_dynamic_selection_v2(confidence_score, variability_score, count, pool_size=40, ambiguous_ratio=0.5, random_guess=0.5):
@@ -1176,3 +1214,123 @@ def importance_selection_among_good_dynamic_samples(influence_score, top_ambiguo
     random.shuffle(selected_sample_idx_list)
 
     return selected_sample_idx_list
+
+
+
+def model_pred_change_after_gold(args, model_list, model_list_after_gold, dataset_list):
+    
+    assert args.len_LLM <= len(model_list) <= args.len_LLM+1, f"{args.len_LLM=} != {len(model_list)=}"
+    assert args.len_LLM <= len(model_list_after_gold) <= args.len_LLM+1, f"{args.len_LLM=} != {len(model_list_after_gold)=}"
+    assert args.len_LLM <= len(dataset_list) <= args.len_LLM+1, f"{args.len_LLM=} != {len(dataset_list)=}"
+
+    loss_per_sample = []
+    error_per_sample = []
+    correctness_per_sample = []
+    prediction_per_sample = []
+    logits_per_sample = []
+
+    for model_before, model_after, dataset in zip(model_list, model_list_after_gold, dataset_list):
+        models = [model_before, model_after]
+        if args.small_model_name.upper() == 'LSTM':
+            data_iter = BucketIterator.splits(
+                (dataset,),
+                batch_sizes=(args.train_batch_size,),
+                device=args.device,
+                sort_key=lambda x: len(x.text),
+                sort_within_batch=True,
+                repeat=False,
+                shuffle=False,
+            )
+            data_iter = list(data_iter)[0]
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+            data_iter = DataLoader(dataset, batch_size=args.train_batch_size, shuffle=False)
+
+        loss_per_sample.append(torch.zeros((len(models), len(dataset),), dtype=torch.float32).to(args.device))
+        error_per_sample.append(torch.zeros((len(models), len(dataset),), dtype=torch.float32).to(args.device))
+        correctness_per_sample.append(torch.zeros((len(models), len(dataset),), dtype=torch.bool).to(args.device))
+        prediction_per_sample.append(torch.zeros((len(models), len(dataset),), dtype=torch.long).to(args.device))
+        logits_per_sample.append(torch.zeros((len(models), len(dataset), args.num_classes), dtype=torch.float32).to(args.device))
+        # labels_per_sample = torch.zeros((len(data),), dtype=torch.long).to(args.device)
+        for im, model in enumerate(models):
+            model.to(args.device)
+            model.eval()
+            correct_num = 0
+            err_num = 0
+            total_loss = 0
+            all_labels = []
+            with torch.no_grad():
+                for i, batch in enumerate(data_iter):
+                    if args.small_model_name == 'LSTM':
+                        (inputs, lens), labels = batch.text, batch.label
+                        output = model(inputs, lens)
+                        labels = batch.label
+                        idx = batch.idx
+                    else:
+                        inputs, attention_mask, labels, idx = batch
+                        inputs = inputs.to(args.device)
+                        attention_mask = attention_mask.to(args.device)
+                        labels = labels.to(args.device)
+                        idx = idx.to(args.device)
+                        eval_labels = labels
+                        # print(f"{inputs.shape=}, {attention_mask.shape=}, {labels.shape=}, {idx.shape=}")
+                        # print(f"{inputs[:3]=}, {attention_mask[:3]=}, {labels[:3]=}, {idx[:3]=}")
+                        output = model(inputs, attention_mask=attention_mask, labels=eval_labels).logits
+
+                    all_labels.append(labels)
+                    predicts = output.argmax(-1).reshape(-1)
+
+                    soft_max_output = torch.softmax(output,dim=-1)
+                    for _i, index in enumerate(idx):
+                        error_per_sample[-1][im][index] = abs(1-soft_max_output[_i,labels[_i]])
+                        logits_per_sample[-1][im][index] = soft_max_output[_i]
+
+                    # loss = loss_func(output, labels)
+                    if args.inner_obj == "ce":
+                        loss_per_sample[-1][im][idx] = F.cross_entropy(output, labels, reduction='none').flatten()
+                        # if not args.normalize:
+                        #     loss = torch.mean(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])
+                        # else:
+                        #     loss = torch.sum(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])/torch.sum(theta[idx])
+                        loss = torch.mean(F.cross_entropy(output, labels, reduction='none').flatten())
+                    elif args.inner_obj=='kl':
+                        one_hot = torch.zeros(len(labels),len(args.num_classes)).cuda().scatter_(1, labels.view(-1, 1), args.init_label).cuda()
+                        one_hot = F.softmax(one_hot, dim=1)
+                        loss_vec = torch.mean(F.softmax(output, dim=1)*(F.log_softmax(output, dim=1)-torch.log(one_hot)), dim=1)
+                        loss_per_sample[-1][im][idx] = loss_vec
+                        # loss = torch.mean(loss_vec*theta[idx])
+                        loss = torch.mean(loss_vec)
+
+                    total_loss += loss.item()
+                    correct_num += (predicts == labels).sum().item()
+                    correctness_per_sample[-1][im][idx] = (predicts == labels)
+                    prediction_per_sample[-1][im][idx] = predicts
+                    err_num += (predicts != labels).sum().item()
+
+            acc = correct_num / (correct_num + err_num)
+            tqdm.write("cross validation: Acc: %.3f, Loss %.3f" % (acc, total_loss))
+            all_labels = torch.cat(all_labels)
+            print(f"num of zeros: {torch.sum(all_labels == 0)}")
+            print(f"num of ones: {torch.sum(all_labels == 1)}")
+            model.to("cpu")
+            # return acc, total_loss/len(data_iter)
+            # return loss_per_sample, error_per_sample, correctness_per_sample, prediction_per_sample, logits_per_sample
+
+    # loss_per_sample = torch.cat(loss_per_sample, dim=1)
+    # error_per_sample = torch.cat(error_per_sample, dim=1)
+    # correctness_per_sample = torch.cat(correctness_per_sample, dim=1)
+    # prediction_per_sample = torch.cat(prediction_per_sample, dim=1)
+    # logits_per_sample = torch.cat(logits_per_sample, dim=1)
+
+    print(f"{loss_per_sample[0].shape=}, {error_per_sample[0].shape=}, {logits_per_sample[0].shape=}, {len(loss_per_sample)=}")
+    torch.save(([dataset.text for dataset in dataset_list], [dataset.label for dataset in dataset_list], loss_per_sample, error_per_sample, correctness_per_sample, prediction_per_sample, logits_per_sample), f"{args.result_file_path}/sample_pred.pth")
+
+
+    loss_per_sample_change = [loss_per_sample[i][1] - loss_per_sample[i][0] for i in range(len(loss_per_sample))]
+    error_per_sample_change = [error_per_sample[i][1] - error_per_sample[i][0] for i in range(len(error_per_sample))]
+    correctness_per_sample_change = [(correctness_per_sample[i][1]) & (~correctness_per_sample[i][0]) for i in range(len(correctness_per_sample))]
+    prediction_per_sample_change = [prediction_per_sample[i][1] - prediction_per_sample[i][0] for i in range(len(prediction_per_sample))]
+    logits_per_sample_change = [torch.norm(logits_per_sample[i][1] - logits_per_sample[i][0], dim=1) for i in range(len(logits_per_sample))]
+
+    print(f"{loss_per_sample_change[0].shape=}, {error_per_sample_change[0].shape=}, {logits_per_sample_change[0].shape=}, {len(logits_per_sample_change)=}")
+
+    return loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, logits_per_sample_change

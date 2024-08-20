@@ -11,7 +11,7 @@ import copy
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from torch.optim import Adam,SGD
+from torch.optim import Adam, SGD #, AdamW
 import os
 import sys
 from models import RNN
@@ -99,12 +99,14 @@ def construct_outer_subloader(args, train_data, indices = None, idx_to_order=Non
         dev_data.attention_mask = [] # clear all the samples
         dev_data.label = [] # clear all the samples
         dev_data.idx = [] # clear all the samples
+        dev_data.is_syn = [] # clear all the samples
         for i in range(args.len_LLM):
             dev_data.text += [train_data.text[ix] for ix in indices]
             dev_data.ids += [train_data.ids[ix] for ix in indices]
             dev_data.attention_mask += [train_data.attention_mask[ix] for ix in indices]
             dev_data.label += [train_data.label[ix] for ix in indices]
             dev_data.idx += [train_data.idx[ix] for ix in indices]
+            dev_data.is_syn += [train_data.is_syn[ix] for ix in indices]
         # dev_data.ids = torch.stack(dev_data.ids).squeeze().to(args.device)
         # dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze().to(args.device)
         # dev_data.label = torch.tensor(dev_data.label).long().to(args.device)
@@ -113,6 +115,7 @@ def construct_outer_subloader(args, train_data, indices = None, idx_to_order=Non
         dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze()
         dev_data.label = torch.tensor(dev_data.label).long()
         dev_data.idx = torch.tensor(dev_data.idx).long()
+        dev_data.is_syn = torch.tensor(dev_data.is_synn).bool()
         subset_iter = [DataLoader(dev_data, batch_size=args.backward_batch_size, shuffle=True)]
     return subset_iter[0]
 
@@ -321,6 +324,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             text_column='C',
             label_column='Y',
             index_column='idx',
+            is_syn_column='is_syn',
             tokenizer=args.tokenizer,
             max_length=args.max_input_length,
             # device=args.device,
@@ -341,22 +345,24 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         small_train_data = TokenizedDataset(
             file_path=(''),
         )
-        small_train_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[:train_valid_pivot_point]]
-        small_train_data.ids = copy.deepcopy(train_data.ids[indices[:train_valid_pivot_point]])
-        small_train_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[:train_valid_pivot_point]])
-        small_train_data.label = copy.deepcopy(train_data.label[indices[:train_valid_pivot_point]])
-        # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long().to(args.device)
-        small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+        small_train_data.copy_dataset(train_data, indices[:train_valid_pivot_point], new_idx=True)
+        # small_train_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[:train_valid_pivot_point]]
+        # small_train_data.ids = copy.deepcopy(train_data.ids[indices[:train_valid_pivot_point]])
+        # small_train_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[:train_valid_pivot_point]])
+        # small_train_data.label = copy.deepcopy(train_data.label[indices[:train_valid_pivot_point]])
+        # # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long().to(args.device)
+        # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
         
         small_valid_data = TokenizedDataset(
             file_path=(''),
         )
-        small_valid_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[train_valid_pivot_point:]]
-        small_valid_data.ids = copy.deepcopy(train_data.ids[indices[train_valid_pivot_point:]])
-        small_valid_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[train_valid_pivot_point:]])
-        small_valid_data.label = copy.deepcopy(train_data.label[indices[train_valid_pivot_point:]])
-        # small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long().to(args.device)
-        small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long()
+        small_valid_data.copy_dataset(train_data, indices[train_valid_pivot_point:], new_idx=True)
+        # small_valid_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[train_valid_pivot_point:]]
+        # small_valid_data.ids = copy.deepcopy(train_data.ids[indices[train_valid_pivot_point:]])
+        # small_valid_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[train_valid_pivot_point:]])
+        # small_valid_data.label = copy.deepcopy(train_data.label[indices[train_valid_pivot_point:]])
+        # # small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long().to(args.device)
+        # small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long()
 
         train_data_list.append(train_data)
         small_train_data_list.append(small_train_data)
@@ -370,6 +376,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         text_column='text',
         label_column='label',
         index_column='idx',
+        is_syn_column=None,
         tokenizer=args.tokenizer,
         device=args.device,
         max_length=args.max_input_length,
@@ -385,6 +392,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             text_column='text',
             label_column='label',
             index_column='idx',
+            is_syn_column=None,
             tokenizer=args.tokenizer,
             device=args.device,
             max_length=args.max_input_length
@@ -394,6 +402,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             text_column='text',
             label_column='label',
             index_column='idx',
+            is_syn_column=None,
             tokenizer=args.tokenizer,
             max_length=args.max_input_length,
             device=args.device,
@@ -414,18 +423,19 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
                 # device=args.device,
                 # max_sample=1
             )
-            dev_data.text = [] # clear all the samples
-            dev_data.ids = [] # clear all the samples
-            dev_data.attention_mask = [] # clear all the samples
-            dev_data.label = [] # clear all the samples
-            dev_data.idx = [] # clear all the samples
-            for i in range(args.len_LLM):
-                print(f"[debug] {len(train_data_list[i])=}")
-                dev_data.text += [train_data_list[i].text[ix] for ix in indices]
-                dev_data.ids += [train_data_list[i].ids[ix] for ix in indices]
-                dev_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in indices]
-                dev_data.label += [train_data_list[i].label[ix] for ix in indices]
-                dev_data.idx += [train_data_list[i].idx[ix] for ix in indices]
+            dev_data.clear_and_copy_dataset(train_data_list, indices, args.len_LLM, new_idx=False)
+            # dev_data.text = [] # clear all the samples
+            # dev_data.ids = [] # clear all the samples
+            # dev_data.attention_mask = [] # clear all the samples
+            # dev_data.label = [] # clear all the samples
+            # dev_data.idx = [] # clear all the samples
+            # for i in range(args.len_LLM):
+            #     print(f"[debug] {len(train_data_list[i])=}")
+            #     dev_data.text += [train_data_list[i].text[ix] for ix in indices]
+            #     dev_data.ids += [train_data_list[i].ids[ix] for ix in indices]
+            #     dev_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in indices]
+            #     dev_data.label += [train_data_list[i].label[ix] for ix in indices]
+            #     dev_data.idx += [train_data_list[i].idx[ix] for ix in indices]
         else:
             dev_data=train_data
         dev_data_all=train_data
@@ -435,63 +445,66 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         train_data = TokenizedDataset(
                 file_path=(''),
             )
-        train_data.text = [] # clear all the samples
-        train_data.ids = [] # clear all the samples
-        train_data.attention_mask = [] # clear all the samples
-        train_data.label = [] # clear all the samples
-        train_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            print(f"[debug] {len(train_data_list[i])=}")
-            train_data.text += [train_data_list[i].text[ix] for ix in range(len(train_data_list[i].text))]
-            train_data.ids += [train_data_list[i].ids[ix] for ix in range(len(train_data_list[i].ids))]
-            train_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in range(len(train_data_list[i].attention_mask))]
-            train_data.label += [train_data_list[i].label[ix] for ix in range(len(train_data_list[i].label))]
-            train_data.idx += [train_data_list[i].idx[ix] for ix in range(len(train_data_list[i].idx))]
-        train_data.idx = [_i for _i in range(len(train_data.idx))]
-        train_data.ids = torch.stack(train_data.ids).squeeze()
-        train_data.attention_mask = torch.stack(train_data.attention_mask).squeeze()
-        train_data.label = torch.tensor(train_data.label).long()
-        train_data.idx = torch.tensor(train_data.idx).long()
+        train_data.clear_and_copy_dataset(train_data_list, [], args.len_LLM, new_idx=True)
+        # train_data.text = [] # clear all the samples
+        # train_data.ids = [] # clear all the samples
+        # train_data.attention_mask = [] # clear all the samples
+        # train_data.label = [] # clear all the samples
+        # train_data.idx = [] # clear all the samples
+        # for i in range(args.len_LLM):
+        #     print(f"[debug] {len(train_data_list[i])=}")
+        #     train_data.text += [train_data_list[i].text[ix] for ix in range(len(train_data_list[i].text))]
+        #     train_data.ids += [train_data_list[i].ids[ix] for ix in range(len(train_data_list[i].ids))]
+        #     train_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in range(len(train_data_list[i].attention_mask))]
+        #     train_data.label += [train_data_list[i].label[ix] for ix in range(len(train_data_list[i].label))]
+        #     train_data.idx += [train_data_list[i].idx[ix] for ix in range(len(train_data_list[i].idx))]
+        # train_data.idx = [_i for _i in range(len(train_data.idx))]
+        # train_data.ids = torch.stack(train_data.ids).squeeze()
+        # train_data.attention_mask = torch.stack(train_data.attention_mask).squeeze()
+        # train_data.label = torch.tensor(train_data.label).long()
+        # train_data.idx = torch.tensor(train_data.idx).long()
         small_train_data = TokenizedDataset(
                 file_path=(''),
             )
-        small_train_data.text = [] # clear all the samples
-        small_train_data.ids = [] # clear all the samples
-        small_train_data.attention_mask = [] # clear all the samples
-        small_train_data.label = [] # clear all the samples
-        small_train_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            print(f"[debug] {len(small_train_data_list[i])=}")
-            small_train_data.text += [small_train_data_list[i].text[ix] for ix in range(len(small_train_data_list[i].text))]
-            small_train_data.ids += [small_train_data_list[i].ids[ix] for ix in range(len(small_train_data_list[i].ids))]
-            small_train_data.attention_mask += [small_train_data_list[i].attention_mask[ix] for ix in range(len(small_train_data_list[i].attention_mask))]
-            small_train_data.label += [small_train_data_list[i].label[ix] for ix in range(len(small_train_data_list[i].label))]
-            small_train_data.idx += [small_train_data_list[i].idx[ix] for ix in range(len(small_train_data_list[i].idx))]
-        small_train_data.idx = [_i for _i in range(len(small_train_data.idx))]
-        small_train_data.ids = torch.stack(small_train_data.ids).squeeze()
-        small_train_data.attention_mask = torch.stack(small_train_data.attention_mask).squeeze()
-        small_train_data.label = torch.tensor(small_train_data.label).long()
-        small_train_data.idx = torch.tensor(small_train_data.idx).long()
+        small_train_data.clear_and_copy_dataset(small_train_data_list, [], args.len_LLM, new_idx=True)
+        # small_train_data.text = [] # clear all the samples
+        # small_train_data.ids = [] # clear all the samples
+        # small_train_data.attention_mask = [] # clear all the samples
+        # small_train_data.label = [] # clear all the samples
+        # small_train_data.idx = [] # clear all the samples
+        # for i in range(args.len_LLM):
+        #     print(f"[debug] {len(small_train_data_list[i])=}")
+        #     small_train_data.text += [small_train_data_list[i].text[ix] for ix in range(len(small_train_data_list[i].text))]
+        #     small_train_data.ids += [small_train_data_list[i].ids[ix] for ix in range(len(small_train_data_list[i].ids))]
+        #     small_train_data.attention_mask += [small_train_data_list[i].attention_mask[ix] for ix in range(len(small_train_data_list[i].attention_mask))]
+        #     small_train_data.label += [small_train_data_list[i].label[ix] for ix in range(len(small_train_data_list[i].label))]
+        #     small_train_data.idx += [small_train_data_list[i].idx[ix] for ix in range(len(small_train_data_list[i].idx))]
+        # small_train_data.idx = [_i for _i in range(len(small_train_data.idx))]
+        # small_train_data.ids = torch.stack(small_train_data.ids).squeeze()
+        # small_train_data.attention_mask = torch.stack(small_train_data.attention_mask).squeeze()
+        # small_train_data.label = torch.tensor(small_train_data.label).long()
+        # small_train_data.idx = torch.tensor(small_train_data.idx).long()
         small_valid_data = TokenizedDataset(
                 file_path=(''),
             )
-        small_valid_data.text = [] # clear all the samples
-        small_valid_data.ids = [] # clear all the samples
-        small_valid_data.attention_mask = [] # clear all the samples
-        small_valid_data.label = [] # clear all the samples
-        small_valid_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            print(f"[debug] {len(small_valid_data_list[i])=}")
-            small_valid_data.text += [small_valid_data_list[i].text[ix] for ix in range(len(small_valid_data_list[i].text))]
-            small_valid_data.ids += [small_valid_data_list[i].ids[ix] for ix in range(len(small_valid_data_list[i].ids))]
-            small_valid_data.attention_mask += [small_valid_data_list[i].attention_mask[ix] for ix in range(len(small_valid_data_list[i].attention_mask))]
-            small_valid_data.label += [small_valid_data_list[i].label[ix] for ix in range(len(small_valid_data_list[i].label))]
-            small_valid_data.idx += [small_valid_data_list[i].idx[ix] for ix in range(len(small_valid_data_list[i].idx))]
-        small_valid_data.idx = [_i for _i in range(len(small_valid_data.idx))]
-        small_valid_data.ids = torch.stack(small_valid_data.ids).squeeze()
-        small_valid_data.attention_mask = torch.stack(small_valid_data.attention_mask).squeeze()
-        small_valid_data.label = torch.tensor(small_valid_data.label).long()
-        small_valid_data.idx = torch.tensor(small_valid_data.idx).long()
+        small_valid_data.clear_and_copy_dataset(small_valid_data_list, [], args.len_LLM, new_idx=True)
+        # small_valid_data.text = [] # clear all the samples
+        # small_valid_data.ids = [] # clear all the samples
+        # small_valid_data.attention_mask = [] # clear all the samples
+        # small_valid_data.label = [] # clear all the samples
+        # small_valid_data.idx = [] # clear all the samples
+        # for i in range(args.len_LLM):
+        #     print(f"[debug] {len(small_valid_data_list[i])=}")
+        #     small_valid_data.text += [small_valid_data_list[i].text[ix] for ix in range(len(small_valid_data_list[i].text))]
+        #     small_valid_data.ids += [small_valid_data_list[i].ids[ix] for ix in range(len(small_valid_data_list[i].ids))]
+        #     small_valid_data.attention_mask += [small_valid_data_list[i].attention_mask[ix] for ix in range(len(small_valid_data_list[i].attention_mask))]
+        #     small_valid_data.label += [small_valid_data_list[i].label[ix] for ix in range(len(small_valid_data_list[i].label))]
+        #     small_valid_data.idx += [small_valid_data_list[i].idx[ix] for ix in range(len(small_valid_data_list[i].idx))]
+        # small_valid_data.idx = [_i for _i in range(len(small_valid_data.idx))]
+        # small_valid_data.ids = torch.stack(small_valid_data.ids).squeeze()
+        # small_valid_data.attention_mask = torch.stack(small_valid_data.attention_mask).squeeze()
+        # small_valid_data.label = torch.tensor(small_valid_data.label).long()
+        # small_valid_data.idx = torch.tensor(small_valid_data.idx).long()
 
         train_data_list = [train_data]
         small_train_data_list = [small_train_data]
@@ -557,6 +570,15 @@ def eval(args, model, data_iter, name, epoch=None, use_soft_label=False):
                 total_loss += loss.item()
                 correct_num += (predicts == labels).sum().item()
                 err_num += (predicts != labels).sum().item()
+                if name == 'test':
+                    error_pos = (predicts != labels).flatten().bool()
+                    print(f"{(predicts != labels)=}")
+                    print(f"{(predicts != labels).flatten()=}")
+                    print(f"{error_pos=}")
+                    for pos in range(len(error_pos)):
+                        if error_pos[pos] == True:
+                            print(f"[see wrong prediction] {idx[pos]=}, {data_iter.dataset.text[idx[pos]]}, {predicts[pos]=}, {labels[pos]=}")
+                            logging.info(f"[see wrong prediction] {idx[pos]=}, {data_iter.dataset.text[idx[pos]]}, {predicts[pos]=}, {labels[pos]=}")
 
     acc = correct_num / (correct_num + err_num)
     if epoch is not None:
@@ -644,8 +666,12 @@ def train(args, model, train_iter, dev_iter, loss_func, optimizer, epochs, patie
 
 def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj, test_loader, soft_label=None):
     model_copy = copy.deepcopy(model)
+    scheduler = None
     if args.optim =='Adam':
         optimizer = Adam(model_copy.parameters(), lr=args.inner_lr)
+        if 'ernie' in args.small_model_name:
+            optimizer = AdamW(model_copy.parameters(), lr=args.inner_lr, weight_decay=0.01)
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=500, num_training_steps=int(((len(train_data)+args.train_batch_size-1)//args.train_batch_size)*epoch_converge))
     elif args.optim =='SGD':
         optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
     losses = AverageMeter("Loss", ":.3f")
@@ -731,6 +757,8 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
             losses.update(loss.item(), labels.size(0))
             loss.backward()
             optimizer.step()
+            if scheduler != None:
+                scheduler.step()
             # print(f'after a batch train, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
         valid_acc, valid_loss = eval(args, model_copy, test_loader, "validate")
         print(f"train_iter={epoch}, {valid_acc=}, {valid_loss=}")
@@ -796,18 +824,19 @@ def train_to_converge_fused(args, model, train_data, theta, selected_sample_inde
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column] ]
-            selected_train_data.idx += [_id]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column] ]
+        #     selected_train_data.idx += [_id]
+        #     _id += 1
         theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
 
@@ -900,18 +929,19 @@ def train_to_converge_with_weight_adjust_fused(args, model, train_data, theta, s
             selected_train_data = TokenizedDataset(
                 file_path=('')
             )
-            selected_train_data.text = [] # clear all the samples
-            selected_train_data.ids = [] # clear all the samples
-            selected_train_data.attention_mask = [] # clear all the samples
-            selected_train_data.label = [] # clear all the samples
-            selected_train_data.idx = [] # clear all the samples
-            for row, column in zip(selected_sample_rows,selected_sample_columns):
-                selected_train_data.text += [train_data[row].text[column]]
-                selected_train_data.ids += [train_data[row].ids[column]]
-                selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-                selected_train_data.label += [train_data[row].label[column]]
-                selected_train_data.idx += [_id]
-                _id += 1
+            selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+            # selected_train_data.text = [] # clear all the samples
+            # selected_train_data.ids = [] # clear all the samples
+            # selected_train_data.attention_mask = [] # clear all the samples
+            # selected_train_data.label = [] # clear all the samples
+            # selected_train_data.idx = [] # clear all the samples
+            # for row, column in zip(selected_sample_rows,selected_sample_columns):
+            #     selected_train_data.text += [train_data[row].text[column]]
+            #     selected_train_data.ids += [train_data[row].ids[column]]
+            #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+            #     selected_train_data.label += [train_data[row].label[column]]
+            #     selected_train_data.idx += [_id]
+            #     _id += 1
             theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
             init_theta = copy.deepcopy(theta)
     elif len(train_data) == 1:
@@ -1064,18 +1094,19 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column]]
-            selected_train_data.idx += [_id]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column]]
+        #     selected_train_data.idx += [_id]
+        #     _id += 1
         theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
     init_theta = copy.deepcopy(theta)
@@ -1134,315 +1165,6 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
                 low_quality_sample_columns.append(c)
                 # print(i,r,c)
         return new_selected_sample_rows, new_selected_sample_columns, low_quality_sample_rows, low_quality_sample_columns
-
-
-# ################################## vote for low quality samples ##################################
-# def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train_data, theta, trained_models, selected_sample_indexs, epoch_adjust, epoch_converge, inner_obj, test_loader, outer_iter):
-#     theta_for_function_call = [copy.deepcopy(_theta) for _theta in theta]
-#     for _theta in theta:
-#         _theta = _theta.detach()
-#     _saved_theta = [copy.deepcopy(_theta) for _theta in theta]
-#     selected_sample_rows, selected_sample_columns = selected_sample_indexs[0], selected_sample_indexs[1]  
-#     # print(f"{len(train_data[0].idx)=}, {selected_sample_rows=}")
-#     # if selected_sample_rows == None or selected_sample_columns == None:
-#     #     selected_sample_rows, selected_sample_columns = [], []
-#     #     if args.small_model_name.upper() == 'LSTM':
-#     #         for row in range(args.len_LLM):
-#     #             for column in range(len(train_data[row].examples)):
-#     #                 selected_sample_rows.append(row)
-#     #                 selected_sample_columns.append(column)
-#     #     elif 'bert' in args.small_model_name.lower():
-#     #         for row in range(args.len_LLM):
-#     #             for column in range(len(train_data[row].idx)):
-#     #                 selected_sample_rows.append(row)
-#     #                 selected_sample_columns.append(column)
-#     # if type(selected_sample_rows == torch.Tensor):
-#     #     selected_sample_rows = selected_sample_rows.long().to(args.device)
-#     #     selected_sample_columns = selected_sample_columns.long().to(args.device)
-#     # else:
-#     #     selected_sample_rows = torch.tensor(selected_sample_rows, dtype=torch.long).to(args.device)
-#     #     selected_sample_columns = torch.tensor(selected_sample_columns, dtype=torch.long).to(args.device)
-#     assert selected_sample_rows == None and selected_sample_columns == None, "For increased theta selection and flipping, no previous selection should be passed"
-#     selected_sample_rows, selected_sample_columns = [], []
-#     if args.small_model_name.upper() == 'LSTM':
-#         for row in range(args.len_LLM):
-#             for column in range(len(train_data[row].examples)):
-#                 selected_sample_rows.append(row)
-#                 selected_sample_columns.append(column)
-#     elif 'bert' in args.small_model_name.lower():
-#         for row in range(args.len_LLM):
-#             for column in range(len(train_data[row].idx)):
-#                 selected_sample_rows.append(row)
-#                 selected_sample_columns.append(column)
-#     selected_sample_rows = torch.tensor(selected_sample_rows, dtype=torch.long).to(args.device)
-#     selected_sample_columns = torch.tensor(selected_sample_columns, dtype=torch.long).to(args.device)
-#     # print(f"{selected_sample_rows=}, {len(train_data[0].idx)=}, {selected_sample_rows.shape=}")
-    
-#     model_copy = copy.deepcopy(model)
-#     # if args.optim =='Adam':
-#     #     optimizer = Adam(model_copy.parameters(), lr=args.inner_lr)
-#     # elif args.optim =='SGD':
-#     #     optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
-#     losses = AverageMeter("Loss", ":.3f")
-    
-#     # step (1), gather all the samples for selecting those with increased weight
-#     model_weights_cache = []
-#     opt_checkpoints_cache = []
-#     diverged = False
-#     selected_train_dataset = []
-#     index_pairs = set()
-#     _id = 0
-#     if args.small_model_name.upper() == 'LSTM':
-#         for row, column in zip(selected_sample_rows,selected_sample_columns):
-#             selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
-#             selected_train_dataset[_id].idx = _id
-#             _id += 1
-#             index_pairs.add((row.item(), column.item()))
-#         bad_sample_row, bad_sample_column = [], []
-#         # for row in range(args.len_LLM):
-#         #     for column in range(len(train_data[row])):
-#         #         _current_pair = (row, column)
-#         #         if not _current_pair in index_pairs:
-#         #             selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
-#         #             selected_train_dataset[_id].idx = _id
-#         #             # # print("before", selected_train_dataset[_id].label)
-#         #             # selected_train_dataset[_id].label = majority_voting_label(args, train_data[row][column], trained_models, train_data[0].fields)
-#         #             # # print("after", selected_train_dataset[_id].label)
-#         #             _id += 1
-#         #             index_pairs.add((row, column))
-#         #             bad_sample_row.append(row)
-#         #             bad_sample_column.append(column)
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         # selected_sample_rows = torch.cat((selected_sample_rows, torch.tensor(bad_sample_row, dtype=torch.long, device=args.device)))
-#         # selected_sample_columns = torch.cat((selected_sample_columns, torch.tensor(bad_sample_column, dtype=torch.long, device=args.device)))
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         assert _id == sum(args.num_use_samples_inner)
-#         selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-#         # print(selected_train_data.fields)
-#         # selected_train_data = torch.tensor(train_data)[selected_sample_rows,selected_sample_columns]
-#         theta = torch.stack(_saved_theta)[selected_sample_rows,selected_sample_columns]
-#         # print(theta)
-#         # theta = torch.stack(theta)
-#         # print(type(theta), theta.shape)
-#         train_iter, = BucketIterator.splits(
-#             (selected_train_data,),
-#             batch_sizes=(args.train_batch_size,),
-#             device=device,
-#             sort_key=lambda x: len(x.text),
-#             sort_within_batch=True,
-#             repeat=False,
-#             shuffle=args.shuffle_train,
-#         )
-#     elif 'bert' in args.small_model_name.lower():
-#         # add samples with index indicating
-#         selected_train_data = TokenizedDataset(
-#             file_path=(''),
-#         )
-#         selected_train_data.text = [] # clear all the samples
-#         selected_train_data.ids = [] # clear all the samples
-#         selected_train_data.attention_mask = [] # clear all the samples
-#         selected_train_data.label = [] # clear all the samples
-#         selected_train_data.idx = [] # clear all the samples
-#         for row, column in zip(selected_sample_rows,selected_sample_columns):
-#             # print(f"{_id=}, {row=}, {column=}")
-#             selected_train_data.text += [train_data[row].text[column]]
-#             selected_train_data.ids += [train_data[row].ids[column]]
-#             selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-#             selected_train_data.label += [train_data[row].label[column]]
-#             selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
-#             _id += 1
-#             index_pairs.add((row.item(), column.item()))
-#         # bad_sample_row, bad_sample_column = [], []
-#         # for row in range(args.len_LLM):
-#         #     for column in range(len(train_data[row])):
-#         #         _current_pair = (row, column)
-#         #         if not _current_pair in index_pairs:
-#         #             selected_train_data.text += [train_data[row].text[column]]
-#         #             selected_train_data.ids += [train_data[row].ids[column]]
-#         #             selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-#         #             selected_train_data.label += [train_data[row].label[column]]
-#         #             # selected_train_data.label += [torch.tensor(majority_voting_label(args, train_data[row][column], trained_models), dtype=torch.long)]
-#         #             selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
-#         #             _id += 1
-#         #             index_pairs.add((row, column))
-#         #             bad_sample_row.append(row)
-#         #             bad_sample_column.append(column)
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         # selected_sample_rows = torch.cat((selected_sample_rows, torch.tensor(bad_sample_row, dtype=torch.long, device=args.device)))
-#         # selected_sample_columns = torch.cat((selected_sample_columns, torch.tensor(bad_sample_column, dtype=torch.long, device=args.device)))
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         assert _id == sum(args.num_use_samples_inner), f"{_id=}, {sum(args.num_use_samples_inner)=}, {args.num_use_samples_inner=}"
-#         theta = torch.tensor([_saved_theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
-#         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-#     init_theta = copy.deepcopy(theta)
-    
-#     for epoch in range(SELF_WEIGHT_ADJUST_EPOCH):
-#         print(f"epoch #{epoch} for self-weight select")
-#         current_outer_iter_trained_model = []
-#         theta_mapped = copy.deepcopy(theta)
-#         # print(type(theta_mapped),theta_mapped)
-#         # best_theta = copy.deepcopy(theta)
-            
-#         diverged = True # diverged==True means loss==nan, which means the training failed
-#         while diverged:
-#             model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
-#             print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-#             if epoch_adjust % args.check_ft_every==0:
-#                 model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader)
-#                 # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
-
-#         current_outer_iter_trained_model.append(model_copy_converged)
-        
-#         if epoch_adjust % args.check_ft_every == 0:
-#             test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-#             print(f"weight-adjust-for-selection-on-fused-dataset: #fused_adjust_iter={epoch}, beta({args.BETA}), train_loss_selction_ft={loss_ft}, train_acc_selction_ft={train_acc_ft}, test_acc_selction_ft={test_acc1_ft}, test_loss_selction_ft={test_loss_ft}")
-#             logging.info(f"weight-adjust-for-selection-on-fused-dataset: , #fused_adjust_iter={epoch}, beta({args.BETA}), train_loss_selction_ft={loss_ft}, train_acc_selction_ft={train_acc_ft}, test_acc_selction_ft={test_acc1_ft}, test_loss_selction_ft={test_loss_ft}")
-#             if args.wandb:
-#                 wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-
-#         theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
-#         theta = copy.deepcopy(theta_mapped[0])
-#     theta_delta = theta - init_theta
-#     print(f"ratio of elements whose delta in theta larger than 0.0 is {torch.sum(theta_delta >= 0.0).item()/theta_delta.numel()}, total {torch.sum(theta_delta >= 0.0).item()}/{theta_delta.numel()}")
-#     logging.info(f"ratio of elements whose delta in theta larger than 0.0 is {torch.sum(theta_delta >= 0.0).item()/theta_delta.numel()}, total {torch.sum(theta_delta >= 0.0).item()}/{theta_delta.numel()}")
-    
-#     # choose samples that has increased weight as "high quality sample"
-#     # print(f"{theta_delta=}")
-#     new_selected_sample_rows, new_selected_sample_columns = [], []
-#     for i, (r,c) in enumerate(zip(selected_sample_rows,selected_sample_columns)):
-#         if theta_delta[i] >= 0.0:
-#             new_selected_sample_rows.append(r)
-#             new_selected_sample_columns.append(c)
-#     # print(f"selected sample should equal to the number of elements with theta delta larger than 0.0, that is {len(new_selected_sample_rows)} and {len(new_selected_sample_columns)} should == {torch.sum(theta_delta >= 0.0).item()}")
-#     assert(torch.sum(theta_delta >= 0.0).item()==len(new_selected_sample_rows) and len(new_selected_sample_rows)==len(new_selected_sample_columns))
-#     low_quality_sample_rows, low_quality_sample_columns = [], []
-#     for i, (r,c) in enumerate(zip(selected_sample_rows,selected_sample_columns)):
-#         if theta_delta[i] < 0.0:
-#             low_quality_sample_rows.append(r)
-#             low_quality_sample_columns.append(c)
-#             # print(i,r,c)
-#     # print(f"{new_selected_sample_rows=}, {new_selected_sample_columns=}")
-#     # print(f"{low_quality_sample_rows=}, {low_quality_sample_columns=}")
-    
-#     # step(2): flip data
-#     model_weights_cache = []
-#     opt_checkpoints_cache = []
-#     diverged = False
-#     # selected_train_dataset = []
-#     if args.small_model_name.upper() == 'LSTM':
-#         print(f"{type(train_data[0].examples)=}")
-#         new_train_data = [data.Dataset(copy.deepcopy(train_data[_i].examples), train_data[_i].fields) for _i in range(args.len_LLM)]
-#         new_small_train_data = []
-#         new_small_valid_data = []
-#         change_count = 0
-#         for row, column in zip(low_quality_sample_rows, low_quality_sample_columns):
-#             _id = args.accumulate_sampels[row].item()+column
-#             original_label = selected_train_dataset[_id].label
-#             print("before", selected_train_dataset[_id].label)
-#             selected_train_dataset[_id].label = majority_voting_label(args, train_data[row][column], trained_models, train_data[0].fields)
-#             new_train_data[row][column].label = selected_train_dataset[_id].label 
-#             print("after", selected_train_dataset[_id].label)
-#             print(selected_train_dataset[_id].text)
-#             if original_label != new_train_data[row][column].label:
-#                 change_count += 1
-        
-#         for _i in range(args.len_LLM):
-#             traindataset = new_train_data[_i].examples[:args.num_use_samples_inner[_i]]
-#             random.shuffle(traindataset)
-#             # train-valid split
-#             small_traindataset, small_validationdataset = copy.deepcopy(traindataset[:int(args.num_use_samples_inner[_i]*args.train_ratio)]), copy.deepcopy(traindataset[int(args.num_use_samples_inner[_i]*args.train_ratio):])
-#             for _id, data_item in enumerate(small_traindataset):
-#                 data_item.idx = _id
-#             random.shuffle(small_traindataset)
-#             for _id, data_item in enumerate(small_validationdataset):
-#                 data_item.idx = _id
-#             # ############## construct all data and separate as train and test ##############
-#             new_small_train_data.append(data.Dataset(small_traindataset, new_train_data[_i].fields))
-#             new_small_valid_data.append(data.Dataset(small_validationdataset, new_train_data[_i].fields))
-#             # ############## construct all data and separate as train and test ##############
-        
-#         print(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         logging.info(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-#         # selected_train_data = torch.tensor(train_data)[new_selected_sample_rows,new_selected_sample_columns]
-#         theta = torch.stack(_saved_theta)[selected_sample_rows,selected_sample_columns]
-#         train_iter, = BucketIterator.splits(
-#             (selected_train_data,),
-#             batch_sizes=(args.train_batch_size,),
-#             device=device,
-#             sort_key=lambda x: len(x.text),
-#             sort_within_batch=True,
-#             repeat=False,
-#             shuffle=args.shuffle_train,
-#         )
-#     elif 'bert' in args.small_model_name.lower():
-#         new_train_data = []
-#         new_small_train_data = []
-#         new_small_valid_data = []
-#         for _i in range(args.len_LLM):
-#             new_train_data.append(TokenizedDataset(
-#                                     file_path=(''),
-#                                     ))
-#             new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
-#             new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
-#             new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
-#             new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
-#             new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
-#         change_count = 0
-#         for row, column in zip(low_quality_sample_rows, low_quality_sample_columns):
-#             _id = args.accumulate_sampels[row].item()+column
-#             # print(f"{_id=}, {row=}, {column=}")
-#             print("before", selected_train_data.label[_id])
-#             original_label = copy.deepcopy(selected_train_data.label[_id])
-#             # selected_train_data.label[_id] = torch.tensor(majority_voting_label(args, train_data[row][column], trained_models, origin_model_index=row, use_weight=True), dtype=torch.long)
-#             selected_train_data.label[_id] = torch.tensor(majority_voting_label(args, train_data[row][column], trained_models), dtype=torch.long)
-#             new_train_data[row].label[column] = selected_train_data.label[_id]
-#             print("after", selected_train_data.label[_id])
-#             print("after", selected_train_data.text[_id])
-#             if int(original_label) != int(new_train_data[row].label[column]):
-#                 change_count += 1
-        
-#         # ############## separate as train and test ##############
-#         for _i in range(args.len_LLM):
-#             indices = list(range(args.num_use_samples_inner[_i]))
-#             random.shuffle(indices)
-#             train_valid_pivot_point = int(args.num_use_samples_inner[_i]*args.train_ratio)
-#             # train-valid split
-#             small_train_data = TokenizedDataset(
-#                 file_path=(''),
-#             )
-#             small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
-#             small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
-#             small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
-#             small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
-#             small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
-#             small_valid_data = TokenizedDataset(
-#                 file_path=(''),
-#             )
-#             small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
-#             small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
-#             small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
-#             small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
-#             small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[_i]-train_valid_pivot_point)]).long()
-#             new_small_train_data.append(small_train_data)
-#             new_small_valid_data.append(small_valid_data)
-#             # ############## separate as train and test ##############
-
-#         print(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         logging.info(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         theta = torch.tensor([_saved_theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
-#         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-#     init_theta = copy.deepcopy(theta)
-
-#     if args.kd_slm == 0: # train on dataset that flipped 
-#         if 'Adjust' in args.fuse_dataset_weight:
-#             return train_to_converge_with_weight_adjust_fused(args, model, new_train_data, theta_for_function_call, (None, None), epoch_adjust, epoch_converge, inner_obj, test_loader, outer_iter)
-#         else:
-#             return train_to_converge_fused(args, model, new_train_data, theta_for_function_call, (None, None), args.epoch_converge_fully_train, args.inner_obj)
-#     else:
-#         # for kd_slm with sample quality separation by increasedTheta
-#         return new_selected_sample_rows, new_selected_sample_columns, low_quality_sample_rows, low_quality_sample_columns, new_train_data, new_small_train_data, new_small_valid_data
-# ################################## vote for low quality samples ##################################
 
 
 # ################################## vote for all ##################################
@@ -1553,19 +1275,20 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            # print(f"{_id=}, {row=}, {column=}")
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column]]
-            selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     # print(f"{_id=}, {row=}, {column=}")
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column]]
+        #     selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
+        #     _id += 1
         new_train_data = []
         new_small_train_data = []
         new_small_valid_data = []
@@ -1573,11 +1296,12 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             new_train_data.append(TokenizedDataset(
                                     file_path=(''),
                                     ))
-            new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
-            new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
-            new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
-            new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
-            new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
+            new_train_data[_i].copy_dataset(train_data[_i], [ix for ix in range(len(train_data[_i].text))], new_idx=False)
+            # new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
+            # new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
+            # new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
+            # new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
+            # new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
         change_count = 0
         for row, column in zip(selected_sample_rows,selected_sample_columns):
             _id = args.accumulate_sampels[row].item()+column
@@ -1601,19 +1325,21 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             small_train_data = TokenizedDataset(
                 file_path=(''),
             )
-            small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
-            small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
-            small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
-            small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
-            small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+            small_train_data.copy_dataset(new_train_data[_i], indices[:train_valid_pivot_point], new_idx=True)
+            # small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
+            # small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
+            # small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
+            # small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
+            # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
             small_valid_data = TokenizedDataset(
                 file_path=(''),
             )
-            small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
-            small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
-            small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
-            small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
-            small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[_i]-train_valid_pivot_point)]).long()
+            small_valid_data.copy_dataset(new_train_data[_i], indices[train_valid_pivot_point:], new_idx=True)
+            # small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
+            # small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
+            # small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
+            # small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
+            # small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[_i]-train_valid_pivot_point)]).long()
             new_small_train_data.append(small_train_data)
             new_small_valid_data.append(small_valid_data)
         # ############## separate as train and test ##############
@@ -1748,18 +1474,19 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
             selected_train_data = TokenizedDataset(
                 file_path=(''),
             )
-            selected_train_data.text = [] # clear all the samples
-            selected_train_data.ids = [] # clear all the samples
-            selected_train_data.attention_mask = [] # clear all the samples
-            selected_train_data.label = [] # clear all the samples
-            selected_train_data.idx = [] # clear all the samples
-            for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
-                selected_train_data.text += [train_data[row].text[column]]
-                selected_train_data.ids += [train_data[row].ids[column]]
-                selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-                selected_train_data.label += [train_data[row].label[column]]
-                selected_train_data.idx += [_id]
-                _id += 1
+            selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
+            # selected_train_data.text = [] # clear all the samples
+            # selected_train_data.ids = [] # clear all the samples
+            # selected_train_data.attention_mask = [] # clear all the samples
+            # selected_train_data.label = [] # clear all the samples
+            # selected_train_data.idx = [] # clear all the samples
+            # for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
+            #     selected_train_data.text += [train_data[row].text[column]]
+            #     selected_train_data.ids += [train_data[row].ids[column]]
+            #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+            #     selected_train_data.label += [train_data[row].label[column]]
+            #     selected_train_data.idx += [_id]
+            #     _id += 1
             theta = torch.tensor([_saved_theta[row][col] for row,col in zip(high_quality_sample_rows, high_quality_sample_columns)]).to(args.device)
             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
         # init_theta = copy.deepcopy(theta)
@@ -1815,6 +1542,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
         total_data.attention_mask = [] # clear all the samples
         total_data.label = [] # clear all the samples
         total_data.idx = [] # clear all the samples
+        total_data.is_syn = [] # clear all the samples
         for row in range(args.len_LLM):
             accumulate_sampels.append(accumulate_sampels[-1]+len(train_data[row].idx)) 
             for column in range(len(train_data[row].idx)):
@@ -1823,6 +1551,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
                 total_data.attention_mask += [train_data[row].attention_mask[column]]
                 total_data.label += [train_data[row].label[column]]
                 total_data.idx += [_id]
+                total_data.is_syn += [train_data[row].is_syn[column]]
                 _id += 1
     accumulate_sampels = torch.tensor(accumulate_sampels, dtype=torch.long).to(args.device)
     # ############### prepare total_data for later use ###############    
@@ -1862,89 +1591,6 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
             theta = copy.deepcopy(theta_mapped[0])
         high_quality_kd_theta = copy.deepcopy(theta)
         high_quality_kd_model_copy = copy.deepcopy(model_copy_converged_ft)
-
-    # # (3) train only on bad sample with one-hot label
-    # diverged = False
-    # selected_train_dataset = []
-    # _id = 0
-    # if args.small_model_name.upper() == 'LSTM':
-    #     for row, column in zip(low_quality_sample_rows, low_quality_sample_columns):
-    #         selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
-    #         selected_train_dataset[_id].idx = _id
-    #         _id += 1
-    #     selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-    #     theta = torch.stack(_saved_theta)[low_quality_sample_rows, low_quality_sample_columns]
-    #     train_iter, = BucketIterator.splits(
-    #         (selected_train_data,),
-    #         batch_sizes=(args.train_batch_size,),
-    #         device=device,
-    #         sort_key=lambda x: len(x.text),
-    #         sort_within_batch=True,
-    #         repeat=False,
-    #         shuffle=args.shuffle_train,
-    #     )
-    # elif 'bert' in args.small_model_name.lower():
-    #     selected_train_data = TokenizedDataset(
-    #         file_path=(''),
-    #     )
-    #     selected_train_data.text = [] # clear all the samples
-    #     selected_train_data.ids = [] # clear all the samples
-    #     selected_train_data.attention_mask = [] # clear all the samples
-    #     selected_train_data.label = [] # clear all the samples
-    #     selected_train_data.idx = [] # clear all the samples
-    #     for row, column in zip(low_quality_sample_rows, low_quality_sample_columns):
-    #         selected_train_data.text += [train_data[row].text[column]]
-    #         selected_train_data.ids += [train_data[row].ids[column]]
-    #         selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-    #         selected_train_data.label += [train_data[row].label[column]]
-    #         selected_train_data.idx += [_id]
-    #         _id += 1
-    #     theta = torch.tensor([_saved_theta[row][col] for row,col in zip(low_quality_sample_rows, low_quality_sample_columns)]).to(args.device)
-    #     train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-    # # init_theta = copy.deepcopy(theta)
-    # for epoch in range(epoch_adjust//3):
-    #     logging.debug(f"epoch #{epoch} for bad-sample-one-hot")
-    #     current_outer_iter_trained_model = []
-    #     theta_mapped = copy.deepcopy(theta)
-    #     # print(type(theta_mapped),theta_mapped)
-    #     # best_theta = copy.deepcopy(theta)
-            
-    #     ##############  ##############
-    #     diverged = True # diverged==True means loss==nan, which means the training failed
-    #     while diverged:
-    #         model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
-    #         print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-    #         if epoch_adjust % args.check_ft_every==0:
-    #             model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader)
-    #             # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
-
-    #     current_outer_iter_trained_model.append(model_copy_converged)
-        
-    #     if epoch_adjust % args.check_ft_every == 0:
-    #         test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-    #         print(f"weight-adjust-for-selection-kd-fused-(bad-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), bad_train_loss_selction_ft={loss_ft}, bad_train_acc_selction_ft={train_acc_ft}, bad_test_acc_selction_ft={test_acc1_ft}, bad_test_loss_selction_ft={test_loss_ft}")
-    #         logging.info(f"weight-adjust-for-selection-kd-fused-(bad-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), bad_train_loss_selction_ft={loss_ft}, bad_train_acc_selction_ft={train_acc_ft}, bad_test_acc_selction_ft={test_acc1_ft}, bad_test_loss_selction_ft={test_loss_ft}")
-    #         if args.wandb:
-    #             wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-
-    #     theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
-    #     theta = copy.deepcopy(theta_mapped[0])
-    # low_quality_one_hot_theta = copy.deepcopy(theta)
-    # low_quality_model_copy = copy.deepcopy(model_copy_converged_ft)
-
-    # # get predictions
-    # high_quality_loss_per_sample, high_quality_error_per_sample, high_quality_correctness_per_sample, high_quality_prediction_per_sample, high_quality_logits_per_sample = eval_get_pred(args, low_quality_model_copy, selected_train_data)
-    # low_quality_loss_per_sample, low_quality_error_per_sample, low_quality_correctness_per_sample, low_quality_prediction_per_sample, low_quality_logits_per_sample = eval_get_pred(args, low_quality_model_copy, selected_train_data)
-    # _low_quality_sample_rows = torch.tensor(low_quality_sample_rows, dtype=torch.long).to(args.device)
-    # _low_quality_sample_columns = torch.tensor(low_quality_sample_columns, dtype=torch.long).to(args.device)
-    # soft_label_not_seen_bad = soft_label_not_seen[accumulate_sampels[_low_quality_sample_rows]+_low_quality_sample_columns]
-    # low_quality_y = torch.tensor([selected_train_dataset[i].label for i in range(len(selected_train_dataset))],dtype=torch.long).to(args.device)
-    # # soft_label_single_predict_bad already prepared
-    # print(f"{high_quality_logits_per_sample.shape=}, {low_quality_logits_per_sample.shape=}, {soft_label_not_seen_bad.shape=}, {soft_label_single_predict_bad.shape=}, {low_quality_y.shape=}")
-    # # for __i,( high_p, low_p, ns_p, s_p, low_y) in enumerate(zip(high_quality_logits_per_sample.shape, low_quality_logits_per_sample.shape, soft_label_not_seen_bad.shape, soft_label_single_predict_bad.shape, low_quality_y)):
-    # #     print(f"{high_p=}, {low_p=}, {ns_p=}, {s_p=}, {low_y=}")
-    # #     if __i == 16:
-    # #         break
 
     # (4) train on all the samples with "not seen" kd label
     if 'Reweight' in args.fuse_dataset_weight:
@@ -2693,6 +2339,7 @@ def train_separate_models(args, model, train_data, small_train_data, small_valid
         model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model, small_valid_data, _type=args.weight_adjust_criterial)
         # model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model, train_data, _type=args.weight_adjust_criterial)
         theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_model, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
+        # theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_more_steps_model, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
         for j in range(args.len_LLM):
             theta[j] = copy.deepcopy(theta_mapped[j])
             theta_score = copy.deepcopy(theta[j])
@@ -2862,6 +2509,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         # model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model, train_data, _type=args.weight_adjust_criterial)
         if 'Adjust' in args.fuse_dataset_weight:
             theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_model, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
+            # theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_more_steps_model, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
             for j in range(args.len_LLM):
                 theta[j] = copy.deepcopy(theta_mapped[j])
                 theta_score = copy.deepcopy(theta[j])
@@ -3272,7 +2920,7 @@ if __name__ == "__main__":
     if 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
         train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
         # args.num_classes = len(torch.unique(train_data[0].label))
-        args.num_classes = 77 if 'worksheet'==args.task_name else len(torch.unique(train_data[0].label))
+        args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data[0].label))
         # print(f'here0-0, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
         # print("checking, flush")
         # assert 1 == 0

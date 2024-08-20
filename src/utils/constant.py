@@ -11,6 +11,7 @@ MODEL_PATH = {
     'llama-7b-hf': "../../../.cache/huggingface/hub/models--decapoda-research--llama-7b-hf/llama-7b-hf/",
     'llama-2-7b-hf': '../../../.cache/huggingface/hub/models--meta-llama--llama-2-7b-hf/llama-2-7b-hf/',
     'llama-2-7b-chat-hf': '../../../.cache/huggingface/hub/models--meta-llama--llama-2-7b-chat-hf/llama-2-7b-chat-hf/',
+    'llama-3-8b-chinese-chat': '../../../.cache/huggingface/hub/models--meta-llama--llama3-8B-chinese-chat',
     'vicuna-7b-1.5v': '../../../.cache/huggingface/hub/models--lmsys--vicuna-7b-v1.5/',
     'vicuna-13b-1.5v': '../../../.cache/huggingface/hub/models--lmsys--vicuna-13b-v1.5/',
     'opt-6.7b': '../../../.cache/huggingface/hub/models--facebook--opt-6.7b/',
@@ -21,6 +22,8 @@ MODEL_PATH = {
     'glm-2b': '../../../.cache/huggingface/hub/models--thudm--glm-2b/',
     'ernie-3.0-base-zh': '../../../.cache/huggingface/hub/models--nghuyong--ernie-3.0-base-zh/'
 }
+
+SMALL_MODEL_WITH_TOKENIZER = ['bert', 'ernie']
 
 # PROMPTS = {
 #     'human_speaking': "\nHuman:",
@@ -49,7 +52,8 @@ FEW_SHOT_SAMPLE_TEMPLATE = {
     'qnli': 'The Information-Question pair is: ',
     'agnews': 'The news article is: ',
     'markednews': 'The news article is: ',
-    'squad': 'The Context-Question pair is: '
+    'squad': 'The Context-Question pair is: ',
+    'worksheet': '工单数据是：',
 }
 
 FEW_SHOT_PROMPT = {
@@ -183,7 +187,552 @@ FEW_SHOT_PROMPT = {
         "task_name": "squad",
         "stage": "x2",
         "instruction": "The context is: \"<C>\"\n\"<Y>\" is the answer of the following question: \""
-    }
+    },
+    'worksheet': {
+        'task_name': 'worksheet',
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#上网业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#上网业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#上网业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "1": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#业务类短信提醒>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#业务类短信提醒>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#业务类短信提醒>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "2": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#个人固话>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#个人固话>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#个人固话>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "3": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#停复机>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#停复机>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#停复机>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "4": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#副号业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#副号业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#副号业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "5": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#号码回收>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#号码回收>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#号码回收>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "6": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#基本策划>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#基本策划>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#基本策划>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "7": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#基础产品>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#基础产品>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#基础产品>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "8": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#增值策划>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#增值策划>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#增值策划>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "9": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#客户资料管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#客户资料管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#客户资料管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "10": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#开户>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#开户>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#开户>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "11": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#携号转网>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#携号转网>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#携号转网>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "12": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#省内携号>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#省内携号>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#省内携号>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "13": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#营业查询类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#营业查询类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#营业查询类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "14": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#补换卡>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#补换卡>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#补换卡>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "15": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#过户>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#过户>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#过户>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "16": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#重入网>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#重入网>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#重入网>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "17": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#个人业务*小类#销户>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#个人业务*小类#销户>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#个人业务*小类#销户>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "18": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#信控管理*小类#特权报开>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#信控管理*小类#特权报开>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#信控管理*小类#特权报开>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "19": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#信控管理*小类#账务停复机>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#信控管理*小类#账务停复机>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#信控管理*小类#账务停复机>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "20": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#国产系统问题>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#国产系统问题>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#国产系统问题>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "21": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#客服系统>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#客服系统>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#客服系统>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "22": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#工号管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#工号管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#工号管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "23": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#批量管控>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#批量管控>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#批量管控>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "24": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#报表业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#报表业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#报表业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "25": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#无纸化系统>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#无纸化系统>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#无纸化系统>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "26": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#渠道系统>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#渠道系统>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#渠道系统>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "27": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#满意度>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#满意度>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#满意度>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "28": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#网格化智慧运营平台>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#网格化智慧运营平台>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#网格化智慧运营平台>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "29": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#网格化智慧运营平台>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#营业系统>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#营业系统>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "30": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#营销中心>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#营销中心>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#营销中心>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "31": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#内部系统管理*小类#资源管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#内部系统管理*小类#资源管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#内部系统管理*小类#资源管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "32": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#固话业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#固话业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#固话业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "33": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#家庭亲情网>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#家庭亲情网>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#家庭亲情网>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "34": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#家庭套餐>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#家庭套餐>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#家庭套餐>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "35": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#家庭统一支付>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#家庭统一支付>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#家庭统一支付>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "36": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#宽带业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#宽带业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#宽带业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "37": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#宽带电视>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#宽带电视>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#宽带电视>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "38": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#移动看家>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#移动看家>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#移动看家>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "39": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#家庭业务*小类#群组业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#家庭业务*小类#群组业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#家庭业务*小类#群组业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "40": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#5G专网>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#5G专网>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#5G专网>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "41": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#专线类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#专线类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#专线类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "42": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#其它>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#其它>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#其它>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "43": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#办公类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#办公类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#办公类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "44": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#安防类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#安防类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#安防类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "45": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#教育类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#教育类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#教育类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "46": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#物联网业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#物联网业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#物联网业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "47": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#短彩类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#短彩类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#短彩类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "48": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#融合套餐>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#融合套餐>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#融合套餐>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "49": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#视频融合类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#视频融合类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#视频融合类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "50": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#语音类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#语音类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#语音类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "51": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#资源类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#资源类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#资源类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "52": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#集团客户管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#集团客户管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#集团客户管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "53": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#政企业务*小类#集团资金>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#政企业务*小类#集团资金>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#政企业务*小类#集团资金>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "54": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#电子渠道*小类#其他类别>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#电子渠道*小类#其他类别>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#电子渠道*小类#其他类别>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "55": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#电子渠道*小类#大视频>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#电子渠道*小类#大视频>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#电子渠道*小类#大视频>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "56": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#电子渠道*小类#天猫移动旗舰店>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#电子渠道*小类#天猫移动旗舰店>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#电子渠道*小类#天猫移动旗舰店>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "57": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#电子渠道*小类#微信营业厅>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#电子渠道*小类#微信营业厅>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#电子渠道*小类#微信营业厅>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "58": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#电子渠道*小类#手机营业厅>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#电子渠道*小类#手机营业厅>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#电子渠道*小类#手机营业厅>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "59": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#电子渠道*小类#短信营业厅>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#电子渠道*小类#短信营业厅>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#电子渠道*小类#短信营业厅>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "60": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#电子渠道*小类#网上营业厅>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#电子渠道*小类#网上营业厅>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#电子渠道*小类#网上营业厅>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "61": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#计费出账*小类#信控管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#计费出账*小类#信控管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#计费出账*小类#信控管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "62": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#计费出账*小类#计费查询类>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#计费出账*小类#计费查询类>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#计费出账*小类#计费查询类>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "63": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#计费出账*小类#详单管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#计费出账*小类#详单管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#计费出账*小类#详单管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "64": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#计费出账*小类#账单管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#计费出账*小类#账单管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#计费出账*小类#账单管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "65": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#计费出账*小类#费用类短信提醒>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#计费出账*小类#费用类短信提醒>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#计费出账*小类#费用类短信提醒>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "66": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账单管理*小类#个人账单查询及使用>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账单管理*小类#个人账单查询及使用>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账单管理*小类#个人账单查询及使用>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "67": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账单管理*小类#对账单质疑>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账单管理*小类#对账单质疑>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账单管理*小类#对账单质疑>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "68": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账单管理*小类#集团账单查询及使用>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账单管理*小类#集团账单查询及使用>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账单管理*小类#集团账单查询及使用>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "69": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账管支付*小类#充值业务>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账管支付*小类#充值业务>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账管支付*小类#充值业务>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "70": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账管支付*小类#发票管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账管支付*小类#发票管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账管支付*小类#发票管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "71": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账管支付*小类#托收>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账管支付*小类#托收>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账管支付*小类#托收>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "72": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账管支付*小类#欠费管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账管支付*小类#欠费管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账管支付*小类#欠费管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "73": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账管支付*小类#积分管理>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账管支付*小类#积分管理>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账管支付*小类#积分管理>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "74": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账管支付*小类#账务变更>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账管支付*小类#账务变更>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账管支付*小类#账务变更>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "75": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#账管支付*小类#预缴>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#账管支付*小类#预缴>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#账管支付*小类#预缴>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            },
+            "76": {
+                "instruction": "{}一个新的、与上述所给例子表述不同的、属于 \"<类#费用类短信提醒*小类#催缴及话费短信提醒>\" 类别的工单是: \"",
+                "gen_x_instruction": "<E>一个属于 \"<类#费用类短信提醒*小类#催缴及话费短信提醒>\" 类别的工单是: \"",
+                "example_instruction": "一个属于 \"<类#费用类短信提醒*小类#催缴及话费短信提醒>\" 类别的工单是: \"<X>\"",
+                "prompting_instruction": "一个属于 \"<C>\" 类别的工单是: \"<X>\"",
+                "gen_c_instruction": "Restaurant name: \""
+            }
+        }
+    },
 }
 
 SELF_WEIGHT_ADJUST_EPOCH = 4
@@ -201,4 +750,160 @@ LABEL_MAPPING = {
     "mnliMisM": {"entailment": 0, "neutral": 1, "contradiction": 2},
     "squad": {},
     "agnews": {"World": 0, "Sports": 1, "Business": 2, "Science/Technology": 3},
+    "worksheet": {
+        "个人业务/增值策划": 0,
+        "个人业务/营业查询类": 1,
+        "家庭业务/家庭亲情网": 2,
+        "电子渠道/手机营业厅": 3,
+        "个人业务/客户资料管理": 4,
+        "家庭业务/宽带业务": 5,
+        "内部系统管理/无纸化系统": 6,
+        "账管支付/积分管理": 7,
+        "个人业务/基本策划": 8,
+        "家庭业务/移动看家": 9,
+        "个人业务/上网业务": 10,
+        "政企业务/物联网业务": 11,
+        "内部系统管理/资源管理": 12,
+        "政企业务/语音类": 13,
+        "家庭业务/宽带电视": 14,
+        "个人业务/副号业务": 15,
+        "计费出账/账单管理": 16,
+        "个人业务/过户": 17,
+        "政企业务/短彩类": 18,
+        "政企业务/视频融合类": 19,
+        "个人业务/业务类短信提醒": 20,
+        "账管支付/充值业务": 21,
+        "账管支付/预缴": 22,
+        "内部系统管理/报表业务": 23,
+        "家庭业务/固话业务": 24,
+        "个人业务/携号转网": 25,
+        "账管支付/发票管理": 26,
+        "账管支付/欠费管理": 27,
+        "政企业务/集团资金": 28,
+        "个人业务/开户": 29,
+        "计费出账/信控管理": 30,
+        "家庭业务/群组业务": 31,
+        "家庭业务/家庭统一支付": 32,
+        "内部系统管理/批量管控": 33,
+        "计费出账/费用类短信提醒": 34,
+        "个人业务/补换卡": 35,
+        "政企业务/5G专网": 36,
+        "个人业务/停复机": 37,
+        "账管支付/托收": 38,
+        "政企业务/资源类": 39,
+        "账管支付/账务变更": 40,
+        "政企业务/其它": 41,
+        "内部系统管理/渠道系统": 42,
+        "个人业务/销户": 43,
+        "计费出账/详单管理": 44,
+        "内部系统管理/营业系统": 45,
+        "内部系统管理/工号管理": 46,
+        "政企业务/专线类": 47,
+        "政企业务/教育类": 48,
+        "政企业务/集团客户管理": 49,
+        "政企业务/安防类": 50,
+        "个人业务/重入网": 51,
+        "内部系统管理/营销中心": 52,
+        "个人业务/号码回收": 53,
+        "政企业务/融合套餐": 54,
+        "个人业务/基础产品": 55,
+        "内部系统管理/客服系统": 56,
+        "计费出账/计费查询类": 57,
+        "内部系统管理/网格化智慧运营平台": 58,
+        "内部系统管理/满意度": 59,
+        "电子渠道/网上营业厅": 60,
+        "家庭业务/家庭套餐": 61,
+        "电子渠道/微信营业厅": 62,
+        "电子渠道/天猫移动旗舰店": 63,
+        "个人业务/省内携号": 64,
+        "电子渠道/其他类别": 65,
+        "个人业务/个人固话": 66,
+        "电子渠道/大视频": 67,
+        "电子渠道/短信营业厅": 68,
+        "政企业务/办公类": 69,
+        "内部系统管理/国产系统问题": 70,
+        "账单管理/集团账单查询及使用": 71,
+        "账单管理/对账单质疑": 72,
+        "账单管理/个人账单查询及使用": 73,
+        "信控管理/账务停复机": 74,
+        "费用类短信提醒/催缴及话费短信提醒": 75,
+        "信控管理/特权报开": 76,
+        "增值策划": 0,
+        "营业查询类": 1,
+        "家庭亲情网": 2,
+        "手机营业厅": 3,
+        "客户资料管理": 4,
+        "宽带业务": 5,
+        "无纸化系统": 6,
+        "积分管理": 7,
+        "基本策划": 8,
+        "移动看家": 9,
+        "上网业务": 10,
+        "物联网业务": 11,
+        "资源管理": 12,
+        "语音类": 13,
+        "宽带电视": 14,
+        "副号业务": 15,
+        "账单管理": 16,
+        "过户": 17,
+        "短彩类": 18,
+        "视频融合类": 19,
+        "业务类短信提醒": 20,
+        "充值业务": 21,
+        "预缴": 22,
+        "报表业务": 23,
+        "固话业务": 24,
+        "携号转网": 25,
+        "发票管理": 26,
+        "欠费管理": 27,
+        "集团资金": 28,
+        "开户": 29,
+        "信控管理": 30,
+        "群组业务": 31,
+        "家庭统一支付": 32,
+        "批量管控": 33,
+        "费用类短信提醒": 34,
+        "补换卡": 35,
+        "5G专网": 36,
+        "停复机": 37,
+        "托收": 38,
+        "资源类": 39,
+        "账务变更": 40,
+        "其它": 41,
+        "渠道系统": 42,
+        "销户": 43,
+        "详单管理": 44,
+        "营业系统": 45,
+        "工号管理": 46,
+        "专线类": 47,
+        "教育类": 48,
+        "集团客户管理": 49,
+        "安防类": 50,
+        "重入网": 51,
+        "营销中心": 52,
+        "号码回收": 53,
+        "融合套餐": 54,
+        "基础产品": 55,
+        "客服系统": 56,
+        "计费查询类": 57,
+        "网格化智慧运营平台": 58,
+        "满意度": 59,
+        "网上营业厅": 60,
+        "家庭套餐": 61,
+        "微信营业厅": 62,
+        "天猫移动旗舰店": 63,
+        "省内携号": 64,
+        "其他类别": 65,
+        "个人固话": 66,
+        "大视频": 67,
+        "短信营业厅": 68,
+        "办公类": 69,
+        "国产系统问题": 70,
+        "集团账单查询及使用": 71,
+        "对账单质疑": 72,
+        "个人账单查询及使用": 73,
+        "账务停复机": 74,
+        "催缴及话费短信提醒": 75,
+        "特权报开": 76
+    },
 }

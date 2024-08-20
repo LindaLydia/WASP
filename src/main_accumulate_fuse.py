@@ -33,12 +33,12 @@ import logging
 import jsonlines
 
 from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoModelForMaskedLM, AutoTokenizer
-from transformers import BertForSequenceClassification, BertTokenizer
+from transformers import BertForSequenceClassification, BertTokenizer, ErnieForSequenceClassification
 from transformers import AdamW
 from transformers import get_linear_schedule_with_warmup
 
 from utils.basic_utils import *
-from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT
+from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT, SMALL_MODEL_WITH_TOKENIZER
 from utils.reweight_train import *
 from utils.sample_selection import *
 from utils.bert_dataset import *
@@ -92,29 +92,32 @@ def construct_outer_subloader(args, train_data, indices = None, idx_to_order=Non
             repeat=False,
             shuffle=True,
         )
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         dev_data = TokenizedDataset(
             file_path=(''),
         )
-        dev_data.text = [] # clear all the samples
-        dev_data.ids = [] # clear all the samples
-        dev_data.attention_mask = [] # clear all the samples
-        dev_data.label = [] # clear all the samples
-        dev_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            dev_data.text += [train_data.text[ix] for ix in indices]
-            dev_data.ids += [train_data.ids[ix] for ix in indices]
-            dev_data.attention_mask += [train_data.attention_mask[ix] for ix in indices]
-            dev_data.label += [train_data.label[ix] for ix in indices]
-            dev_data.idx += [train_data.idx[ix] for ix in indices]
-        # dev_data.ids = torch.stack(dev_data.ids).squeeze().to(args.device)
-        # dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze().to(args.device)
-        # dev_data.label = torch.tensor(dev_data.label).long().to(args.device)
-        # dev_data.idx = torch.tensor(dev_data.idx).long().to(args.device)
-        dev_data.ids = torch.stack(dev_data.ids).squeeze()
-        dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze()
-        dev_data.label = torch.tensor(dev_data.label).long()
-        dev_data.idx = torch.tensor(dev_data.idx).long()
+        dev_data.clear_and_copy_dataset(train_data, indices, args.len_LLM, new_idx=False)
+        # dev_data.text = [] # clear all the samples
+        # dev_data.ids = [] # clear all the samples
+        # dev_data.attention_mask = [] # clear all the samples
+        # dev_data.label = [] # clear all the samples
+        # dev_data.idx = [] # clear all the samples
+        # dev_data.is_syn = [] # clear all the samples
+        # for i in range(args.len_LLM):
+        #     dev_data.text += [train_data.text[ix] for ix in indices]
+        #     dev_data.ids += [train_data.ids[ix] for ix in indices]
+        #     dev_data.attention_mask += [train_data.attention_mask[ix] for ix in indices]
+        #     dev_data.label += [train_data.label[ix] for ix in indices]
+        #     dev_data.idx += [train_data.idx[ix] for ix in indices]
+        #     dev_data.is_syn += [train_data.is_syn[ix] for ix in indices]
+        # # dev_data.ids = torch.stack(dev_data.ids).squeeze().to(args.device)
+        # # dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze().to(args.device)
+        # # dev_data.label = torch.tensor(dev_data.label).long().to(args.device)
+        # # dev_data.idx = torch.tensor(dev_data.idx).long().to(args.device)
+        # dev_data.ids = torch.stack(dev_data.ids).squeeze()
+        # dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze()
+        # dev_data.label = torch.tensor(dev_data.label).long()
+        # dev_data.idx = torch.tensor(dev_data.idx).long()
         subset_iter = [DataLoader(dev_data, batch_size=args.backward_batch_size, shuffle=True)]
     return subset_iter[0]
 
@@ -134,7 +137,7 @@ def file_choose(num_samples):
 def load_iters(args, batch_size=32, backward_batch_size=1000, device="cpu", gold_data_path='data', syn_data_path='data', vectors=None, use_tree=False, num_use_samples_inner=100, num_use_samples_outer=100, shuffle_train=True):
     if args.small_model_name.upper() == "LSTM":
         return load_iters_lstm(args, batch_size, backward_batch_size, device, gold_data_path, syn_data_path, vectors, use_tree, num_use_samples_inner, num_use_samples_outer, shuffle_train)
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         return load_iters_bert(args, batch_size, backward_batch_size, device, gold_data_path, syn_data_path, vectors, use_tree, num_use_samples_inner, num_use_samples_outer, shuffle_train)
 
 def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu", gold_data_path='data', syn_data_path='data', vectors=None, use_tree=False, num_use_samples_inner=100, num_use_samples_outer=100, shuffle_train=True):
@@ -348,6 +351,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             max_length=args.max_input_length,
             # device=args.device,
+            is_syn_column=None,
             max_sample=args.sample_each_llm[i],
             small_dataset_shuffle=False,
         )
@@ -363,22 +367,27 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         small_train_data = TokenizedDataset(
             file_path=(''),
         )
-        small_train_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[:train_valid_pivot_point]]
-        small_train_data.ids = copy.deepcopy(train_data.ids[indices[:train_valid_pivot_point]])
-        small_train_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[:train_valid_pivot_point]])
-        small_train_data.label = copy.deepcopy(train_data.label[indices[:train_valid_pivot_point]])
-        # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long().to(args.device)
-        small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+        small_train_data.copy_dataset(train_data, indices[:train_valid_pivot_point], new_idx=True)
+        # small_valid_data.copy_dataset(train_data, indices[train_valid_pivot_point:], new_idx=True)
+        # small_train_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[:train_valid_pivot_point]]
+        # small_train_data.ids = copy.deepcopy(train_data.ids[indices[:train_valid_pivot_point]])
+        # small_train_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[:train_valid_pivot_point]])
+        # small_train_data.label = copy.deepcopy(train_data.label[indices[:train_valid_pivot_point]])
+        # # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long().to(args.device)
+        # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+        # small_train_data.is_syn = copy.deepcopy(train_data.is_syn[indices[:train_valid_pivot_point]])
         
         small_valid_data = TokenizedDataset(
             file_path=(''),
         )
-        small_valid_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[train_valid_pivot_point:]]
-        small_valid_data.ids = copy.deepcopy(train_data.ids[indices[train_valid_pivot_point:]])
-        small_valid_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[train_valid_pivot_point:]])
-        small_valid_data.label = copy.deepcopy(train_data.label[indices[train_valid_pivot_point:]])
-        # small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i]-train_valid_pivot_point)]).long().to(args.device)
-        small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i]-train_valid_pivot_point)]).long()
+        small_valid_data.copy_dataset(train_data, indices[train_valid_pivot_point:], new_idx=True)
+        # small_valid_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[train_valid_pivot_point:]]
+        # small_valid_data.ids = copy.deepcopy(train_data.ids[indices[train_valid_pivot_point:]])
+        # small_valid_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[train_valid_pivot_point:]])
+        # small_valid_data.label = copy.deepcopy(train_data.label[indices[train_valid_pivot_point:]])
+        # # small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i]-train_valid_pivot_point)]).long().to(args.device)
+        # small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i]-train_valid_pivot_point)]).long()
+        # small_valid_data.is_syn = copy.deepcopy(train_data.is_syn[indices[train_valid_pivot_point:]])
 
         train_data_list.append(train_data)
         small_train_data_list.append(small_train_data)
@@ -389,16 +398,34 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         args.samples_text[i] = [copy.deepcopy(text) for text in small_train_data.text]
         print(f"[debug] sample_text has length {len(args.samples_text[i])}")
 
-    print("test dataset")
-    test_data = TokenizedDataset(
-        file_path=(gold_data_path+'test.jsonl'),
-        # file_path=(gold_data_path+'test_small.jsonl'),
+    args.num_classes = 77 if 'worksheet'==args.task_name else len(torch.unique(train_data_list[0].label))
+
+    print("golden train data")
+    gold_data = TokenizedDataset(
+        file_path=(gold_data_path+'train.jsonl'),
         text_column='text',
         label_column='label',
         index_column='idx',
         tokenizer=args.tokenizer,
         device=args.device,
         max_length=args.max_input_length,
+        max_sample=((args.gold_data_num+args.num_classes-1)//args.num_classes)*args.num_classes,
+        # max_sample=-1 # use all that is provided in the dataset file
+        is_syn_column=None,
+        small_dataset_shuffle=True,
+    )
+
+    print("test dataset")
+    test_data = TokenizedDataset(
+        # file_path=(gold_data_path+'test.jsonl'),
+        file_path=(gold_data_path+'test_small.jsonl'),
+        text_column='text',
+        label_column='label',
+        index_column='idx',
+        tokenizer=args.tokenizer,
+        device=args.device,
+        max_length=args.max_input_length,
+        is_syn_column=None,
         # max_sample=100 # use all that is provided in the dataset file
         max_sample=-1 # use all that is provided in the dataset file
     )
@@ -414,6 +441,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             device=args.device,
             max_length=args.max_input_length,
+            is_syn_column=None,
             small_dataset_shuffle=False,
         )
         dev_data = TokenizedDataset(
@@ -425,6 +453,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             max_length=args.max_input_length,
             device=args.device,
             max_sample=num_use_samples_outer,
+            is_syn_column=None,
             small_dataset_shuffle=False,
         )
     else:
@@ -442,18 +471,21 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
                 # device=args.device,
                 # max_sample=1
             )
-            dev_data.text = [] # clear all the samples
-            dev_data.ids = [] # clear all the samples
-            dev_data.attention_mask = [] # clear all the samples
-            dev_data.label = [] # clear all the samples
-            dev_data.idx = [] # clear all the samples
-            for i in range(args.len_LLM):
-                print(f"[debug] {len(train_data_list[i])=}")
-                dev_data.text += [train_data_list[i].text[ix] for ix in indices]
-                dev_data.ids += [train_data_list[i].ids[ix] for ix in indices]
-                dev_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in indices]
-                dev_data.label += [train_data_list[i].label[ix] for ix in indices]
-                dev_data.idx += [train_data_list[i].idx[ix] for ix in indices]
+            dev_data.clear_and_copy_dataset(train_data_list, indices, args.len_LLM, new_idx=False)
+            # dev_data.text = [] # clear all the samples
+            # dev_data.ids = [] # clear all the samples
+            # dev_data.attention_mask = [] # clear all the samples
+            # dev_data.label = [] # clear all the samples
+            # dev_data.idx = [] # clear all the samples
+            # dev_data.is_syn = [] # clear all the samples
+            # for i in range(args.len_LLM):
+            #     print(f"[debug] {len(train_data_list[i])=}")
+            #     dev_data.text += [train_data_list[i].text[ix] for ix in indices]
+            #     dev_data.ids += [train_data_list[i].ids[ix] for ix in indices]
+            #     dev_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in indices]
+            #     dev_data.label += [train_data_list[i].label[ix] for ix in indices]
+            #     dev_data.idx += [train_data_list[i].idx[ix] for ix in indices]
+            #     dev_data.is_syn += [train_data_list[i].is_syn[ix] for ix in indices]
         else:
             dev_data=train_data
         dev_data_all=train_data
@@ -463,23 +495,24 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
     small_valid_iter_list = [DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_train) for dataset in small_valid_data_list]
     train_iter_backward_list = [DataLoader(dataset, batch_size=backward_batch_size, shuffle=shuffle_train) for dataset in train_data_list]
     dev_iter = DataLoader(dev_data, batch_size=batch_size, shuffle=shuffle_train)
+    gold_iter = DataLoader(gold_data, batch_size=batch_size, shuffle=True)
     test_iter = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
-    for im, small_train_data in enumerate(train_data_list):
-        # if im != len(small_train_data_list)-1:
-        if im != 0:
-            continue
-        train_iter = DataLoader(small_train_data, batch_size=batch_size, shuffle=shuffle_train)
-        for batch in train_iter:
-            inputs, attention_mask, labels, idx = batch
-            print(labels, idx)
-            for _idx, _label in zip(idx, labels):
-                print(f"model#{im}: idx={_idx}, label={small_train_data.label[_idx]}, text={small_train_data.text[_idx]}")
-                # print(f"batch: idx={_idx}, batch_used_text={_text}")
-            break
+    # for im, small_train_data in enumerate(train_data_list):
+    #     # if im != len(small_train_data_list)-1:
+    #     if im != 0:
+    #         continue
+    #     train_iter = DataLoader(small_train_data, batch_size=batch_size, shuffle=shuffle_train)
+    #     for batch in train_iter:
+    #         inputs, attention_mask, labels, idx = batch
+    #         print(labels, idx)
+    #         for _idx, _label in zip(idx, labels):
+    #             print(f"model#{im}: idx={_idx}, label={small_train_data.label[_idx]}, text={small_train_data.text[_idx]}")
+    #             # print(f"batch: idx={_idx}, batch_used_text={_text}")
+    #         break
 
     print(f'[debug] before exiting load iter: len(train_iter_list)={len(train_iter_list)}, len(train_data_list)={len(train_data_list)}')
-    return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, test_iter, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all
+    return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, gold_iter, test_iter, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all, gold_data
 
 
 def count_parameters(model):
@@ -504,7 +537,7 @@ def eval(args, model, data_iter, name, epoch=None, use_soft_label=False):
                 total_loss += loss.item()
                 correct_num += (predicts == labels).sum().item()
                 err_num += (predicts != labels).sum().item()
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         with torch.no_grad():
             for i, batch in enumerate(data_iter):
                 inputs, attention_mask, labels, idx = batch
@@ -551,7 +584,7 @@ def train(args, model, train_iter, dev_iter, loss_func, optimizer, epochs, patie
     best_acc = -1
     patience_counter = 0
 
-    if 'bert' in args.small_model_name.lower():
+    if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         if args.optim =='Adam':
             optimizer = Adam(model.parameters(), lr=args.inner_lr)
         elif args.optim =='SGD':
@@ -582,7 +615,7 @@ def train(args, model, train_iter, dev_iter, loss_func, optimizer, epochs, patie
                 optimizer.step()
 
             tqdm.write("Epoch: %d, Train Loss: %d" % (epoch + 1, total_loss))
-        elif 'bert' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             for batch in tqdm(train_iter):
                 inputs, attention_mask, labels, idx = batch
                 inputs = inputs.to(args.device)
@@ -638,7 +671,7 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         train_iter = DataLoader(train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
         # print(f"{train_data[0]=}, {train_data[1]=}")
     # print(f"[debug] in train_to_converge theta.shape={theta.shape}, len(train_data)={len(train_data)}")
@@ -654,7 +687,7 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
                 (inputs, lens), labels = batch.text, batch.label
                 idx = batch.idx
                 # print(f"{idx=}")
-            elif 'bert' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 inputs, attention_mask, labels, idx = batch
                 inputs = inputs.to(args.device)
                 attention_mask = attention_mask.to(args.device)
@@ -672,7 +705,7 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
             # print(f'after puting a batch on gpu, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             if args.small_model_name.upper() == 'LSTM':
                 output = model_copy(inputs, lens)
-            elif 'bert' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 output = model_copy(inputs, attention_mask=attention_mask, labels=labels).logits
             # print(f"[debug] in train_to_converge each batch, len(outputs)={len(output)}")
             # print(f"[debug] in train_to_converge each batch, idx={idx}")
@@ -747,22 +780,25 @@ def train_to_converge_fused(args, model, train_data, theta, selected_sample_inde
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column] ]
-            selected_train_data.idx += [_id]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # selected_train_data.is_syn = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column] ]
+        #     selected_train_data.idx += [_id]
+        #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+        #     _id += 1
         theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
 
@@ -778,7 +814,7 @@ def train_to_converge_fused(args, model, train_data, theta, selected_sample_inde
                 # model_copy.zero_grad() # this is equal to optimizer.zero_grad() when optimizer contains only this model's whole parameters
                 optimizer.zero_grad()
                 output = model_copy(inputs, lens)
-            elif 'bert' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 inputs, attention_mask, labels, idx = batch
                 inputs = inputs.to(args.device)
                 attention_mask = attention_mask.to(args.device)
@@ -831,7 +867,7 @@ def train_to_converge_with_weight_adjust_fused(args, model, train_data, theta, s
                 for column in range(len(train_data[row].examples)):
                     selected_sample_rows.append(row)
                     selected_sample_columns.append(column)
-        elif 'bert' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             for row in range(args.len_LLM):
                 for column in range(len(train_data[row].idx)):
                     selected_sample_rows.append(row)
@@ -850,23 +886,24 @@ def train_to_converge_with_weight_adjust_fused(args, model, train_data, theta, s
             # print(theta)
             # theta = torch.stack(theta)
             # print(type(theta), theta.shape)
-        elif 'bert' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             _id = 0
             selected_train_data = TokenizedDataset(
-                file_path=('')
+                file_path=(''),
             )
-            selected_train_data.text = [] # clear all the samples
-            selected_train_data.ids = [] # clear all the samples
-            selected_train_data.attention_mask = [] # clear all the samples
-            selected_train_data.label = [] # clear all the samples
-            selected_train_data.idx = [] # clear all the samples
-            for row, column in zip(selected_sample_rows,selected_sample_columns):
-                selected_train_data.text += [train_data[row].text[column]]
-                selected_train_data.ids += [train_data[row].ids[column]]
-                selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-                selected_train_data.label += [train_data[row].label[column]]
-                selected_train_data.idx += [_id]
-                _id += 1
+            selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+            # selected_train_data.text = [] # clear all the samples
+            # selected_train_data.ids = [] # clear all the samples
+            # selected_train_data.attention_mask = [] # clear all the samples
+            # selected_train_data.label = [] # clear all the samples
+            # selected_train_data.idx = [] # clear all the samples
+            # for row, column in zip(selected_sample_rows,selected_sample_columns):
+            #     selected_train_data.text += [train_data[row].text[column]]
+            #     selected_train_data.ids += [train_data[row].ids[column]]
+            #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+            #     selected_train_data.label += [train_data[row].label[column]]
+            #     selected_train_data.idx += [_id]
+            #     _id += 1
             theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
             init_theta = copy.deepcopy(theta)
     elif len(train_data) == 1:
@@ -974,7 +1011,7 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         # if use all, put all the index together
         if selected_sample_rows == None or selected_sample_columns == None:
             selected_sample_rows, selected_sample_columns = [], []
@@ -986,18 +1023,21 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column]]
-            selected_train_data.idx += [_id]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # selected_train_data.is_syn = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column]]
+        #     selected_train_data.idx += [_id]
+        #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+        #     _id += 1
         theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
     init_theta = copy.deepcopy(theta)
@@ -1074,7 +1114,7 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             for column in range(len(train_data[row].examples)):
                 selected_sample_rows.append(row)
                 selected_sample_columns.append(column)
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         for row in range(args.len_LLM):
             for column in range(len(train_data[row].idx)):
                 selected_sample_rows.append(row)
@@ -1145,24 +1185,27 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         # add samples with index indicating
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            # print(f"{_id=}, {row=}, {column=}")
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column]]
-            selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # selected_train_data.is_syn = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     # print(f"{_id=}, {row=}, {column=}")
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column]]
+        #     selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
+        #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+        #     _id += 1
         new_train_data = []
         new_small_train_data = []
         new_small_valid_data = []
@@ -1170,11 +1213,13 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             new_train_data.append(TokenizedDataset(
                                     file_path=(''),
                                     ))
-            new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
-            new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
-            new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
-            new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
-            new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
+            new_train_data[_i].copy_dataset(train_data[_i], [ix for ix in range(len(train_data[_i].text))], new_idx=False)
+            # new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
+            # new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
+            # new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
+            # new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
+            # new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
+            # new_train_data[_i].is_syn = copy.deepcopy(train_data[_i].is_syn)
         change_count = 0
         for row, column in zip(selected_sample_rows,selected_sample_columns):
             _id = args.accumulate_sampels[row].item()+column
@@ -1199,19 +1244,23 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             small_train_data = TokenizedDataset(
                 file_path=(''),
             )
-            small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
-            small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
-            small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
-            small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
-            small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+            small_train_data.copy_dataset(new_train_data[_i], indices[:train_valid_pivot_point], new_idx=True)
+            # small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
+            # small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
+            # small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
+            # small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
+            # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+            # small_train_data.is_syn = copy.deepcopy(new_train_data[_i].is_syn[indices[:train_valid_pivot_point]])
             small_valid_data = TokenizedDataset(
                 file_path=(''),
             )
-            small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
-            small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
-            small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
-            small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
-            small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[_i]-train_valid_pivot_point)]).long()
+            small_valid_data.copy_dataset(new_train_data[_i], indices[train_valid_pivot_point:], new_idx=True)
+            # small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
+            # small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
+            # small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
+            # small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
+            # small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[_i]-train_valid_pivot_point)]).long()
+            # small_valid_data.is_syn = copy.deepcopy(new_train_data[_i].is_syn[indices[train_valid_pivot_point:]])
             new_small_train_data.append(small_train_data)
             new_small_valid_data.append(small_valid_data)
         # ############## separate as train and test ##############
@@ -1329,22 +1378,25 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
                     repeat=False,
                     shuffle=args.shuffle_train,
                 )
-            elif 'bert' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 selected_train_data = TokenizedDataset(
                     file_path=(''),
                 )
-                selected_train_data.text = [] # clear all the samples
-                selected_train_data.ids = [] # clear all the samples
-                selected_train_data.attention_mask = [] # clear all the samples
-                selected_train_data.label = [] # clear all the samples
-                selected_train_data.idx = [] # clear all the samples
-                for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
-                    selected_train_data.text += [train_data[row].text[column]]
-                    selected_train_data.ids += [train_data[row].ids[column]]
-                    selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-                    selected_train_data.label += [train_data[row].label[column]]
-                    selected_train_data.idx += [_id]
-                    _id += 1
+                selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
+                # selected_train_data.text = [] # clear all the samples
+                # selected_train_data.ids = [] # clear all the samples
+                # selected_train_data.attention_mask = [] # clear all the samples
+                # selected_train_data.label = [] # clear all the samples
+                # selected_train_data.idx = [] # clear all the samples
+                # selected_train_data.is_syn = [] # clear all the samples
+                # for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
+                #     selected_train_data.text += [train_data[row].text[column]]
+                #     selected_train_data.ids += [train_data[row].ids[column]]
+                #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+                #     selected_train_data.label += [train_data[row].label[column]]
+                #     selected_train_data.idx += [_id]
+                #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+                #     _id += 1
                 theta = torch.tensor([_saved_theta[row][col] for row,col in zip(high_quality_sample_rows, high_quality_sample_columns)]).to(args.device)
                 train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
             # init_theta = copy.deepcopy(theta)
@@ -1391,25 +1443,29 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
             accumulate_sampels.append(accumulate_sampels[-1]+len(_dataset_examples)) 
         for _i in range(len(total_data)):
             total_data[_i].idx = _i
-    elif 'bert' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         _id = 0
         total_data = TokenizedDataset(
             file_path=(''),
         )
-        total_data.text = [] # clear all the samples
-        total_data.ids = [] # clear all the samples
-        total_data.attention_mask = [] # clear all the samples
-        total_data.label = [] # clear all the samples
-        total_data.idx = [] # clear all the samples
+        total_data.clear_and_copy_dataset(train_data, [], args.len_LLM, new_idx=True)
+        # selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
+        # total_data.text = [] # clear all the samples
+        # total_data.ids = [] # clear all the samples
+        # total_data.attention_mask = [] # clear all the samples
+        # total_data.label = [] # clear all the samples
+        # total_data.idx = [] # clear all the samples
+        # total_data.is_syn = [] # clear all the samples
         for row in range(args.len_LLM):
             accumulate_sampels.append(accumulate_sampels[-1]+len(train_data[row].idx)) 
-            for column in range(len(train_data[row].idx)):
-                total_data.text += [train_data[row].text[column]]
-                total_data.ids += [train_data[row].ids[column]]
-                total_data.attention_mask += [train_data[row].attention_mask[column]]
-                total_data.label += [train_data[row].label[column]]
-                total_data.idx += [_id]
-                _id += 1
+            # for column in range(len(train_data[row].idx)):
+            #     total_data.text += [train_data[row].text[column]]
+            #     total_data.ids += [train_data[row].ids[column]]
+            #     total_data.attention_mask += [train_data[row].attention_mask[column]]
+            #     total_data.label += [train_data[row].label[column]]
+            #     total_data.idx += [_id]
+            #     total_data.is_syn += [train_data[row].is_syn[column]]
+            #     _id += 1
     accumulate_sampels = torch.tensor(accumulate_sampels, dtype=torch.long).to(args.device)
     # # (2) train only on good sample with kd label
     # ############### prepare total_data for later use ###############    
@@ -1473,7 +1529,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     #         repeat=False,
     #         shuffle=args.shuffle_train,
     #     )
-    # elif 'bert' in args.small_model_name.lower():
+    # elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
     #     selected_train_data = TokenizedDataset(
     #         file_path=(''),
     #     )
@@ -1556,7 +1612,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     #                 repeat=False,
     #                 shuffle=args.shuffle_train,
     #             )
-    #         elif 'bert' in args.small_model_name.lower():
+    #         elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
     #             selected_train_data = total_data
     #             theta = torch.stack(_saved_theta).view(-1)
     #             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
@@ -1615,7 +1671,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     #                 repeat=False,
     #                 shuffle=args.shuffle_train,
     #             )
-    #         elif 'bert' in args.small_model_name.lower():
+    #         elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
     #             selected_train_data = total_data
     #             theta = torch.stack(_saved_theta).view(-1)
     #             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
@@ -1673,7 +1729,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
                 repeat=False,
                 shuffle=args.shuffle_train,
             )
-        elif 'bert' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             selected_train_data = total_data
             theta = torch.stack(_saved_theta).view(-1)
             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
@@ -1732,7 +1788,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     #                 #     repeat=False,
     #                 #     shuffle=args.shuffle_train,
     #                 # )
-    #             elif 'bert' in args.small_model_name.lower():
+    #             elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
     #                 selected_train_data = train_data[_k]
     #                 # train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
     #                 print(f"{len(selected_train_data)=}, {theta.shape=}")
@@ -1957,7 +2013,7 @@ def train_separate_models(args, model, train_data, small_train_data, small_valid
     # return current_outer_iter_trained_model, current_outer_iter_trained_more_steps_model, best_theta, new_theta_mapped, new_theta_mapped
 
 
-def solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_loader_backward, valid_loader, test_loader, perform_few_shot_gen=False):
+def solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_loader_backward, valid_loader, gold_loader, test_loader, perform_few_shot_gen=False):
     '''
         input parameters:
             - model: trainable model
@@ -1994,7 +2050,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         current_outer_iter_trained_model_iter0 = []
         current_outer_iter_trained_more_steps_model_iter0 = []
         # args.use_sigmoid = temp_use_sigmoid
-        for _outer_iter in range(1 if 'Flip' in args.fuse_dataset_sample_selection else 5): # this is for separate model WA
+        for _outer_iter in range(1 if 'Flip' in args.fuse_dataset_sample_selection else 1): # this is for separate model WA
             # step (1): train each small local model for each syn dataset with args.epoch_converge iterations
             current_outer_iter_trained_model = []
             current_outer_iter_trained_more_steps_model = []
@@ -2097,6 +2153,60 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{_outer_iter}_main_separate_models.pth")
             torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{_outer_iter}_main_theta_acc.pth")
         
+
+        # ###### train with gold_training data ######
+        current_outer_iter_trained_model_iter0_after_gold = []
+        current_outer_iter_trained_more_steps_model_iter0_after_gold = []
+        current_outer_iter_trained_model_after_gold = []
+        current_outer_iter_trained_more_steps_model_after_gold = []
+        for i in range(args.len_LLM):
+            print(f"training STM #{i} with gold data ")
+            gold_theta = torch.full([len(gold_iter.dataset)], 0.5, dtype=torch.float, device=device) #, requires_grad=True
+            diverged = True # diverged==True means loss==nan, which means the training failed
+            while diverged:
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[i], gold_iter.dataset, gold_theta.detach(), 1, args.inner_obj, test_loader)
+                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                if _outer_iter % args.check_ft_every==0:
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[i], gold_iter.dataset, gold_theta.detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
+            # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+            # print(f"[debug] {args.use_dev_outer}")
+            if args.stochastic_outer and args.subset_outer:
+                if args.use_dev_outer:
+                    valid_loader = construct_outer_subloader(args, dev_data_all)
+                else:
+                    valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+            
+            current_outer_iter_trained_model_after_gold.append(model_copy_converged)
+            current_outer_iter_trained_more_steps_model_after_gold.append(model_copy_converged_ft)
+            if _outer_iter == 0:
+                current_outer_iter_trained_model_iter0_after_gold.append(model_copy_converged)
+                current_outer_iter_trained_more_steps_model_iter0_after_gold.append(model_copy_converged_ft)
+        
+            if _outer_iter % args.check_ft_every == 0:
+                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+                # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+                print(f"train after gold: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                logging.info(f"train after gold: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                if args.wandb:
+                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+
+
+        model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model_after_gold, small_valid_data, _type=args.weight_adjust_criterial)
+        # if 'Adjust' in args.fuse_dataset_weight:
+        #     theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_model_after_gold, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
+        #     for j in range(args.len_LLM):
+        #         theta[j] = copy.deepcopy(theta_mapped[j])
+        #         theta_score = copy.deepcopy(theta[j])
+        #         # print(f"new theta[j] = {theta[j]}")
+        #         best_theta[j]=theta_score
+        
+        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, current_outer_iter_trained_more_steps_model, current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
+        
+        torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
+        print(f"saved changes")
+        # ###### train with gold_training data ######
+
+
         # use the first model for further calculation
         current_outer_iter_trained_model = current_outer_iter_trained_model_iter0
         current_outer_iter_trained_more_steps_model = current_outer_iter_trained_more_steps_model_iter0
@@ -2110,7 +2220,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             if args.small_model_name.upper() == 'LSTM':            
                 for row, column in zip(kept_theta_row, kept_theta_column):
                     selected_idx.append(train_data[row][column].idx)
-            elif 'bert' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 for row, column in zip(kept_theta_row, kept_theta_column):
                     selected_idx.append(train_data[row].idx[column])
             torch.save((kept_theta_row, kept_theta_column, selected_idx, model_importance, best_theta), f"{args.result_file_path}/selected_sample_index_{outer_iter}.pth")
@@ -2333,39 +2443,95 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             importance_score = [None] * args.len_LLM
             confidence_score = [None] * args.len_LLM
             variability_score = [None] * args.len_LLM
-            # ########################### calculate influence score for all ###########################
-            # # for im, model in enumerate(current_outer_iter_trained_more_steps_model):
-            # #     if 'Flip' in args.fuse_dataset_sample_selection:
-            # #         importance_score[im] = run_full_influence_functions(args, model, new_small_valid_data[im], new_small_train_data[im], num_examples_to_test=len(small_valid_data[im]), s_test_num_samples=args.num_use_samples_inner[im])
-            # #     else:
-            # #         importance_score[im] = run_full_influence_functions(args, model, small_valid_data[im], small_train_data[im], num_examples_to_test=len(small_valid_data[im]), s_test_num_samples=args.num_use_samples_inner[im])
+            
+            # # ########################### calculate influence score for top ambiguous and top easy-to-learn ###########################
             # if 'Flip' in args.fuse_dataset_sample_selection:
             #     new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
             #     for im in range(args.len_LLM):
-            #         importance_score[im] = run_full_influence_functions(args, trained_model, new_total_valid_data, new_small_train_data[im], num_examples_to_test=len(new_total_valid_data), s_test_num_samples=100)
             #         confidence_score[im], variability_score[im] = run_divergence_calculation(args, new_current_outer_iter_trained_more_steps_model, new_small_train_data[im])
             # else:
             #     total_valid_data = merge_all_dataset(args, small_valid_data)
             #     for im in range(args.len_LLM):
-            #         importance_score[im] = run_full_influence_functions(args, trained_model, total_valid_data, small_train_data[im], num_examples_to_test=len(total_valid_data), s_test_num_samples=100)
             #         confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
-            # print(f'here0-6, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-            # print(f"{importance_score=}, {confidence_score=}, {variability_score=}")
-            # prompt_samples_idx = importance_dynamic_selection(importance_score, confidence_score, variability_score, args.gen_few_shot_k)
+            # print(f"{confidence_score=}, {variability_score=}")
+            # top_ambiguous_easy_to_learn_idx = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
+            # logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
+            # print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            # if 'influence' in args.gen_sample_select:
+            #     if 'Flip' in args.fuse_dataset_sample_selection:
+            #         for im in range(args.len_LLM):
+            #             if len(top_ambiguous_easy_to_learn_idx[im]) == 0:
+            #                 importance_score[im] = []
+            #                 continue
+            #             if args.small_model_name.upper() == 'LSTM':
+            #                 selected_train_dataset = []
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_dataset.append(copy.deepcopy(new_small_train_data[im][column]))
+            #                 selected_train_data = data.Dataset(selected_train_dataset, new_small_train_data[im].fields)
+            #             elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+            #                 selected_train_data = TokenizedDataset(
+            #                     file_path=(''),
+            #                 )
+            #                 selected_train_data.text = [] # clear all the samples
+            #                 selected_train_data.ids = [] # clear all the samples
+            #                 selected_train_data.attention_mask = [] # clear all the samples
+            #                 selected_train_data.label = [] # clear all the samples
+            #                 selected_train_data.idx = [] # clear all the samples
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_data.text += [new_small_train_data[im].text[column]]
+            #                     selected_train_data.ids += [new_small_train_data[im].ids[column]]
+            #                     selected_train_data.attention_mask += [new_small_train_data[im].attention_mask[column]]
+            #                     selected_train_data.label += [new_small_train_data[im].label[column]]
+            #                     selected_train_data.idx += [new_small_train_data[im].idx[column]]
+            #             importance_score[im] = run_full_influence_functions(args, trained_model, new_total_valid_data, selected_train_data, num_examples_to_test=len(new_total_valid_data), s_test_num_samples=100)
+            #     else:
+            #         for im in range(args.len_LLM):
+            #             if len(top_ambiguous_easy_to_learn_idx[im]) == 0:
+            #                 importance_score[im] = []
+            #                 continue
+            #             if args.small_model_name.upper() == 'LSTM':
+            #                 selected_train_dataset = []
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_dataset.append(copy.deepcopy(small_train_data[im][column]))
+            #                 selected_train_data = data.Dataset(selected_train_dataset, small_train_data[im].fields)
+            #             elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+            #                 selected_train_data = TokenizedDataset(
+            #                     file_path=(''),
+            #                 )
+            #                 selected_train_data.text = [] # clear all the samples
+            #                 selected_train_data.ids = [] # clear all the samples
+            #                 selected_train_data.attention_mask = [] # clear all the samples
+            #                 selected_train_data.label = [] # clear all the samples
+            #                 selected_train_data.idx = [] # clear all the samples
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_data.text += [small_train_data[im].text[column]]
+            #                     selected_train_data.ids += [small_train_data[im].ids[column]]
+            #                     selected_train_data.attention_mask += [small_train_data[im].attention_mask[column]]
+            #                     selected_train_data.label += [small_train_data[im].label[column]]
+            #                     selected_train_data.idx += [small_train_data[im].idx[column]]
+            #             importance_score[im] = run_full_influence_functions(args, trained_model, total_valid_data, selected_train_data, num_examples_to_test=len(total_valid_data), s_test_num_samples=100) 
+            #     print(f'here0-6(2), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            #     print(f"{importance_score=}, {top_ambiguous_easy_to_learn_idx=}")
+            #     print(f"{len(importance_score[im])}, {len(top_ambiguous_easy_to_learn_idx[im])}")
+            #     prompt_samples_idx = importance_selection_among_good_dynamic_samples(importance_score, top_ambiguous_easy_to_learn_idx, args.gen_few_shot_k)
+            # else:
+            #     flat_top_ambiguous_easy_to_learn_idx = [x for xs in top_ambiguous_easy_to_learn_idx for x in xs]
+            #     model_idx_list = []
+            #     for _im in range(args.len_LLM):
+            #         for _ in range(len(top_ambiguous_easy_to_learn_idx[_im])):
+            #             model_idx_list.append(_im)
+            #     random_sample_pos = random.sample(range(len(flat_top_ambiguous_easy_to_learn_idx)),args.gen_few_shot_k)
+            #     prompt_samples_idx = [(model_idx_list[_g], flat_top_ambiguous_easy_to_learn_idx[_g]) for _g in random_sample_pos]
             # print(f"{prompt_samples_idx=}")
-            # ########################### calculate influence score for all ###########################
-            # ########################### calculate influence score for top ambiguous and top easy-to-learn ###########################
+            # # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
+            # # ########################### calculate influence score for top ambiguous and top easy-to-learn ###########################
+
             if 'Flip' in args.fuse_dataset_sample_selection:
                 new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
-                for im in range(args.len_LLM):
-                    confidence_score[im], variability_score[im] = run_divergence_calculation(args, new_current_outer_iter_trained_more_steps_model, new_small_train_data[im])
             else:
                 total_valid_data = merge_all_dataset(args, small_valid_data)
-                for im in range(args.len_LLM):
-                    confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
-            print(f"{confidence_score=}, {variability_score=}")
-            top_ambiguous_easy_to_learn_idx = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
-            logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
+            top_ambiguous_easy_to_learn_idx = sample_error_decreased_selection(error_per_sample_change, args.gen_few_shot_k, args.gen_few_shot_pool_size, is_random=(args.gen_sample_select.replace('influence','')))
+            logging.info(f"#error decreased samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
             print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             if 'influence' in args.gen_sample_select:
                 if 'Flip' in args.fuse_dataset_sample_selection:
@@ -2378,7 +2544,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                             for column in top_ambiguous_easy_to_learn_idx[im]:
                                 selected_train_dataset.append(copy.deepcopy(new_small_train_data[im][column]))
                             selected_train_data = data.Dataset(selected_train_dataset, new_small_train_data[im].fields)
-                        elif 'bert' in args.small_model_name.lower():
+                        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                             selected_train_data = TokenizedDataset(
                                 file_path=(''),
                             )
@@ -2387,12 +2553,14 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                             selected_train_data.attention_mask = [] # clear all the samples
                             selected_train_data.label = [] # clear all the samples
                             selected_train_data.idx = [] # clear all the samples
+                            selected_train_data.is_syn = [] # clear all the samples
                             for column in top_ambiguous_easy_to_learn_idx[im]:
                                 selected_train_data.text += [new_small_train_data[im].text[column]]
                                 selected_train_data.ids += [new_small_train_data[im].ids[column]]
                                 selected_train_data.attention_mask += [new_small_train_data[im].attention_mask[column]]
                                 selected_train_data.label += [new_small_train_data[im].label[column]]
                                 selected_train_data.idx += [new_small_train_data[im].idx[column]]
+                                selected_train_data.is_syn += [new_small_train_data[im].is_syn[column]]
                         importance_score[im] = run_full_influence_functions(args, trained_model, new_total_valid_data, selected_train_data, num_examples_to_test=len(new_total_valid_data), s_test_num_samples=100)
                 else:
                     for im in range(args.len_LLM):
@@ -2404,7 +2572,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                             for column in top_ambiguous_easy_to_learn_idx[im]:
                                 selected_train_dataset.append(copy.deepcopy(small_train_data[im][column]))
                             selected_train_data = data.Dataset(selected_train_dataset, small_train_data[im].fields)
-                        elif 'bert' in args.small_model_name.lower():
+                        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                             selected_train_data = TokenizedDataset(
                                 file_path=(''),
                             )
@@ -2413,12 +2581,14 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                             selected_train_data.attention_mask = [] # clear all the samples
                             selected_train_data.label = [] # clear all the samples
                             selected_train_data.idx = [] # clear all the samples
+                            selected_train_data.is_syn = [] # clear all the samples
                             for column in top_ambiguous_easy_to_learn_idx[im]:
                                 selected_train_data.text += [small_train_data[im].text[column]]
                                 selected_train_data.ids += [small_train_data[im].ids[column]]
                                 selected_train_data.attention_mask += [small_train_data[im].attention_mask[column]]
                                 selected_train_data.label += [small_train_data[im].label[column]]
                                 selected_train_data.idx += [small_train_data[im].idx[column]]
+                                selected_train_data.is_syn += [small_train_data[im].is_syn[column]]
                         importance_score[im] = run_full_influence_functions(args, trained_model, total_valid_data, selected_train_data, num_examples_to_test=len(total_valid_data), s_test_num_samples=100) 
                 print(f'here0-6(2), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
                 print(f"{importance_score=}, {top_ambiguous_easy_to_learn_idx=}")
@@ -2435,6 +2605,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"{prompt_samples_idx=}")
             # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
             
+
             for im in range(args.len_LLM):
                 gen_task_file_dir = f'{args.working_prompt_dir[im]}{args.i_step}/'
                 if not os.path.exists(gen_task_file_dir):
@@ -2491,6 +2662,7 @@ if __name__ == "__main__":
     parser.add_argument('--runs_name', default="ours", type=str)
     parser.add_argument('--scheduler', default="cosine", type=str)
     parser.add_argument('--gold_data_path', default=None, type=str)
+    parser.add_argument('--gold_data_num', default=100, type=int, help='number of golden data available for training')
     parser.add_argument('--syn_data_path', default='data_new/', type=str)
     parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
     # parser.add_argument('--llm_1', default=None, type=str)
@@ -2506,8 +2678,9 @@ if __name__ == "__main__":
     parser.add_argument('--num_use_samples_outer', default=1000, type=int)
     parser.add_argument('--init_label', default=10, type=int)
     parser.add_argument('--init_theta', default=1, type=float)
-    parser.add_argument('--epoch_converge', default=20, type=int)
+    parser.add_argument('--epoch_converge', default=1, type=int)
     parser.add_argument('--epoch_converge_fully_train', default=5, type=int)
+    parser.add_argument('--epoch_gold_fine_tune', default=1, type=int)
     parser.add_argument('--check_ft_every', default=10, type=int)
     parser.add_argument('--threshold', default=0.9, type=float)
     parser.add_argument("--iterative", default=False, action="store_true")
@@ -2637,14 +2810,14 @@ if __name__ == "__main__":
 
     # prepare STM that does not depends on the dataset vocabulary here
     if 'bert' in args.small_model_name.lower():
-        # print(f"small model is {args.small_model_name}")
-        # init_model = BertForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
         print(f"load tokenizer for bert first")
         args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
-        # print(f"{init_model.parameters()=}, {init_model.bert.parameters()=}")
         # # for param in init_model.base_model.parameters():
         # for param in init_model.bert.parameters():
         #     param.requires_grad = False
+    elif 'ernie' in args.small_model_name.lower():
+        print(f"load tokenizer for ernie first")
+        args.tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
     # print(f'here2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
     loss_func = nn.CrossEntropyLoss()
@@ -2678,8 +2851,8 @@ if __name__ == "__main__":
         args.sample_each_llm = torch.tensor(args.sample_each_llm).to(args.device)
 
         print('num of use syn samples:{}'.format(args.num_use_samples_inner))
-        if 'bert' in args.small_model_name.lower():
-            train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
+        if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+            train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
             args.num_classes = len(torch.unique(train_data[0].label))
         else: # lstm
             train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
@@ -2705,6 +2878,10 @@ if __name__ == "__main__":
             init_model = BertForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
             # args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
             print(f"{init_model.parameters()=}, {init_model.bert.parameters()=}")
+        elif 'ernie' in args.small_model_name.lower():
+            print(f"small model is {args.small_model_name}")
+            init_model = ErnieForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
+            print(f"{init_model.parameters()=}")
         else:
             print(f"small model is {args.small_model_name}")
             init_model = AutoModelForMaskedLM.from_pretrained(MODEL_PATH[args.small_model_name])
@@ -2715,13 +2892,14 @@ if __name__ == "__main__":
         args.fused_model = copy.deepcopy(init_model)
         print(f'here0-4, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
-        if 'bert' in args.small_model_name.lower():
+        if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             print(f'use {[len(train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
             print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
             print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
             # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
             # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
             print(f'use {len(dev_iter.dataset.idx)} dev data...')
+            print(f'use {len(gold_iter.dataset.idx)} gold data...')
             print(f'use {len(test_iter.dataset.idx)} test data...')
         elif args.small_model_name == 'LSTM':
             print(f'use {[len(train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
@@ -2735,7 +2913,7 @@ if __name__ == "__main__":
             print(f"specital model, what is it ? {args.small_model_name}")
         print(f'save path is {args.save_path}')
         # best_theta = solve(model, train_iter, train_iter_backward, dev_iter, test_iter)
-        best_theta = solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_iter_backward, dev_iter, test_iter)
+        best_theta = solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_iter_backward, dev_iter, gold_iter, test_iter)
         # best_theta = solve_with_model_importance_estimation(args, model, train_data, test_iter)
         torch.save(best_theta, f"{args.save_path}/best_thetas.pth")
         print(f"best thetas saved to {args.save_path}/best_thetas.pth")
@@ -2772,8 +2950,8 @@ if __name__ == "__main__":
             print('num of use syn samples in total: {}'.format(sum(args.num_use_samples_inner)))
             print(f'num of current syn samples for step {i_step}: {args.sample_each_llm}')
 
-            if 'bert' in args.small_model_name.lower():
-                train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
+            if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
                 args.num_classes = len(torch.unique(train_data[0].label))
             else: # lstm
                 train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
@@ -2794,11 +2972,15 @@ if __name__ == "__main__":
                 init_model = RNN(len(TEXT.vocab), len(LABEL.vocab.stoi),
                             EMBEDDING_SIZE, HIDDEN_SIZE, DROPOUT_RATE, LAYER_NUM,
                             TEXT.vocab.vectors, freeze)
-            elif 'bert' in args.small_model_name.lower(): # models that does not depend on the dataset vocabulary have already been created
+            elif 'bert' in args.small_model_name.lower():
                 print(f"small model is {args.small_model_name}")
                 init_model = BertForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
                 # args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
                 print(f"{init_model.parameters()=}, {init_model.bert.parameters()=}")
+            elif 'ernie' in args.small_model_name.lower():
+                print(f"small model is {args.small_model_name}")
+                init_model = ErnieForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
+                print(f"{init_model.parameters()=}")
             else:
                 print(f"small model is {args.small_model_name}")
                 init_model = AutoModelForMaskedLM.from_pretrained(MODEL_PATH[args.small_model_name])
@@ -2807,13 +2989,14 @@ if __name__ == "__main__":
             args.fused_model = copy.deepcopy(init_model)
             # print(f'here0-4, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
-            if 'bert' in args.small_model_name.lower():
+            if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 print(f'use {[len(train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
                 print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
                 print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
                 # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
                 # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
                 print(f'use {len(dev_iter.dataset.idx)} dev data...')
+                print(f'use {len(gold_iter.dataset.idx)} gold data...')
                 print(f'use {len(test_iter.dataset.idx)} test data...')
             elif args.small_model_name == 'LSTM':
                 print(f'use {[len(train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
@@ -2827,7 +3010,7 @@ if __name__ == "__main__":
                 print(f"specital model, what is it ? {args.small_model_name}")
             print(f'save path is {args.save_path}')
             # best_theta = solve(model, train_iter, train_iter_backward, dev_iter, test_iter)
-            best_theta = solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_iter_backward, dev_iter, test_iter, perform_few_shot_gen=(not i_step==args.steps))
+            best_theta = solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_iter_backward, dev_iter, gold_iter, test_iter, perform_few_shot_gen=(not i_step==args.steps))
             # best_theta = solve_with_model_importance_estimation(args, model, train_data, test_iter)
             torch.save(best_theta, f"{args.save_path}/best_thetas.pth")
             print(f"best thetas saved to {args.save_path}/best_thetas.pth")

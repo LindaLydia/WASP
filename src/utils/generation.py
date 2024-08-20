@@ -21,7 +21,11 @@ from transformers import GenerationConfig
 from transformers import LogitsProcessorList, LogitsWarper, PreTrainedTokenizer, LogitsProcessor
 from transformers import GPT2LMHeadModel, AutoModelForCausalLM, LlamaForCausalLM, AutoModelForSeq2SeqLM, T5ForConditionalGeneration, OPTForCausalLM, AutoModel
 from transformers import GPT2Tokenizer, AutoTokenizer, LlamaTokenizer, LlamaTokenizerFast, T5Tokenizer
-from transformers.generation_utils import GenerationMixin
+try:
+    from transformers.generation_utils import GenerationMixin
+except ImportError:
+    from transformers import GenerationMixin
+# from transformers.generation_utils import GenerationMixin
 from transformers.generation.utils import SampleOutput
 from transformers.generation import SampleEncoderDecoderOutput, SampleDecoderOnlyOutput, StoppingCriteriaList, validate_stopping_criteria
 from .remote_models.modeling_glm import GLMForConditionalGeneration
@@ -1289,7 +1293,10 @@ class LLMWrapper():
             self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
             print(self._model.config)
             self.max_position_embeddings = self._model.config.max_position_embeddings
-            self._tokenizer = LlamaTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
+            if not 'llama-3' in model_name:
+                self._tokenizer = LlamaTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
+            else:
+                self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
         elif 't5' in model_name:
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
             print("load 8-bit model=True")
@@ -1412,7 +1419,10 @@ class SimpleLLM():
             print(self._model.config)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             print(f"{self.max_position_embeddings=}")
-            self._tokenizer = LlamaTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.query_max_length)
+            if not 'llama-3' in model_name:
+                self._tokenizer = LlamaTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
+            else:
+                self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
         elif 't5' in model_name:
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
             print("load 8-bit model=True")

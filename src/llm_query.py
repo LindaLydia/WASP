@@ -37,6 +37,8 @@ def task2processor(task_name):
         return IMDbProcessor
     elif task_name == 'yelp':
         return YelpProcessor
+    elif task_name == 'worksheet':
+        return WorksheetProcessor
     elif task_name == 'sst-2':
         return SST2Processor
     elif task_name == 'squad' or task_name == 'adversarial_qa':

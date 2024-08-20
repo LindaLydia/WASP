@@ -1,12 +1,12 @@
 # -*- coding:utf8 -*-
-try:
-    from torchtext.legacy.data import Iterator, BucketIterator
-except ImportError:
-    from torchtext.data import Iterator, BucketIterator
-try:
-    from torchtext.legacy import data
-except ImportError:
-    from torchtext import data
+# try:
+#     from torchtext.legacy.data import Iterator, BucketIterator
+#     from torchtext.legacy import data
+# except ImportError:
+#     from torchtext.data import Iterator, BucketIterator
+#     from torchtext import data
+from torchtext.legacy.data import Iterator, BucketIterator
+from torchtext.legacy import data
 import copy
 import torch
 import torch.nn as nn
@@ -33,20 +33,20 @@ import logging
 import jsonlines
 
 from transformers import AutoModelForSeq2SeqLM, AutoModelForCausalLM, AutoModelForMaskedLM, AutoTokenizer
-from transformers import BertForSequenceClassification, BertTokenizer
-from transformers import ErnieForSequenceClassification
+from transformers import BertForSequenceClassification, BertTokenizer, ErnieForSequenceClassification
 from transformers import AdamW
 from transformers import get_linear_schedule_with_warmup
 
 from utils.basic_utils import *
-from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH
+from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT, SMALL_MODEL_WITH_TOKENIZER
 from utils.reweight_train import *
 from utils.sample_selection import *
 from utils.bert_dataset import *
 from utils.weight_adjust import weight_decay, model_importance_estimation
 from utils.kd_functions import kd_label, kd_label_iter, kd_label_dataset, kd_label_entropy, kd_label_entropy_aware, kd_label_aware
 from utils.mlp import *
-from llm_query import gen_evaluation
+from utils.influence_utils import run_full_influence_functions
+from llm_query import gen_evaluation, gen_syn_data_few_shot
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -60,6 +60,8 @@ freeze = False
 # BETA = 1.5
 
 SYN_DATA_PATH = 'data_new/'
+# SYN_DATA_PATH = 'data_new_few_shot_ambiguous/'
+# SYN_DATA_PATH = 'data_new_few_shot_easytolearn/'
 # SYN_DATA_PATH = 'data_new_[10]/'
 CUDA_LAUNCH_BLOCKING=1
 
@@ -90,29 +92,32 @@ def construct_outer_subloader(args, train_data, indices = None, idx_to_order=Non
             repeat=False,
             shuffle=True,
         )
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         dev_data = TokenizedDataset(
             file_path=(''),
         )
-        dev_data.text = [] # clear all the samples
-        dev_data.ids = [] # clear all the samples
-        dev_data.attention_mask = [] # clear all the samples
-        dev_data.label = [] # clear all the samples
-        dev_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            dev_data.text += [train_data.text[ix] for ix in indices]
-            dev_data.ids += [train_data.ids[ix] for ix in indices]
-            dev_data.attention_mask += [train_data.attention_mask[ix] for ix in indices]
-            dev_data.label += [train_data.label[ix] for ix in indices]
-            dev_data.idx += [train_data.idx[ix] for ix in indices]
-        # dev_data.ids = torch.stack(dev_data.ids).squeeze().to(args.device)
-        # dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze().to(args.device)
-        # dev_data.label = torch.tensor(dev_data.label).long().to(args.device)
-        # dev_data.idx = torch.tensor(dev_data.idx).long().to(args.device)
-        dev_data.ids = torch.stack(dev_data.ids).squeeze()
-        dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze()
-        dev_data.label = torch.tensor(dev_data.label).long()
-        dev_data.idx = torch.tensor(dev_data.idx).long()
+        dev_data.clear_and_copy_dataset(train_data, indices, args.len_LLM, new_idx=False)
+        # dev_data.text = [] # clear all the samples
+        # dev_data.ids = [] # clear all the samples
+        # dev_data.attention_mask = [] # clear all the samples
+        # dev_data.label = [] # clear all the samples
+        # dev_data.idx = [] # clear all the samples
+        # dev_data.is_syn = [] # clear all the samples
+        # for i in range(args.len_LLM):
+        #     dev_data.text += [train_data.text[ix] for ix in indices]
+        #     dev_data.ids += [train_data.ids[ix] for ix in indices]
+        #     dev_data.attention_mask += [train_data.attention_mask[ix] for ix in indices]
+        #     dev_data.label += [train_data.label[ix] for ix in indices]
+        #     dev_data.idx += [train_data.idx[ix] for ix in indices]
+        #     dev_data.is_syn += [train_data.is_syn[ix] for ix in indices]
+        # # dev_data.ids = torch.stack(dev_data.ids).squeeze().to(args.device)
+        # # dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze().to(args.device)
+        # # dev_data.label = torch.tensor(dev_data.label).long().to(args.device)
+        # # dev_data.idx = torch.tensor(dev_data.idx).long().to(args.device)
+        # dev_data.ids = torch.stack(dev_data.ids).squeeze()
+        # dev_data.attention_mask = torch.stack(dev_data.attention_mask).squeeze()
+        # dev_data.label = torch.tensor(dev_data.label).long()
+        # dev_data.idx = torch.tensor(dev_data.idx).long()
         subset_iter = [DataLoader(dev_data, batch_size=args.backward_batch_size, shuffle=True)]
     return subset_iter[0]
 
@@ -132,7 +137,7 @@ def file_choose(num_samples):
 def load_iters(args, batch_size=32, backward_batch_size=1000, device="cpu", gold_data_path='data', syn_data_path='data', vectors=None, use_tree=False, num_use_samples_inner=100, num_use_samples_outer=100, shuffle_train=True):
     if args.small_model_name.upper() == "LSTM":
         return load_iters_lstm(args, batch_size, backward_batch_size, device, gold_data_path, syn_data_path, vectors, use_tree, num_use_samples_inner, num_use_samples_outer, shuffle_train)
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         return load_iters_bert(args, batch_size, backward_batch_size, device, gold_data_path, syn_data_path, vectors, use_tree, num_use_samples_inner, num_use_samples_outer, shuffle_train)
 
 def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu", gold_data_path='data', syn_data_path='data', vectors=None, use_tree=False, num_use_samples_inner=100, num_use_samples_outer=100, shuffle_train=True):
@@ -154,8 +159,13 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
     small_valid_data_list = []
     all_data_examples = []
     for i in range(args.len_LLM):
+        if args.steps == 0:
+            train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/')
+        else:
+            assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
+            train_data_path = f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.num_use_samples_each_step_extend[i]}/'
         train_data, _ = data.TabularDataset.splits(
-            path=(f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/'),
+            path=train_data_path,
             train='train.jsonl',
             test='train.jsonl',
             # train='test.jsonl',
@@ -164,18 +174,20 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
             fields=fields,
             filter_pred=lambda ex: ex.label != '-'  # filter the example which label is '-'(means unlabeled)
         )
-        traindataset = train_data.examples[:args.num_use_samples_inner[i]]
+        traindataset = train_data.examples[:args.sample_each_llm[i]]
         for _i, data_item in enumerate(traindataset):
             data_item.idx = _i
         # for data_item in traindataset:
         #     print("in construct, total data", data_item.idx, data_item.text, data_item.label)
-        # small_traindataset, small_validationdataset = copy.deepcopy(traindataset[:int(args.num_use_samples_inner[i]*args.train_ratio)]), copy.deepcopy(traindataset[int(args.num_use_samples_inner[i]*args.train_ratio):])
+        # small_traindataset, small_validationdataset = copy.deepcopy(traindataset[:int(args.sample_each_llm[i]*args.train_ratio)]), copy.deepcopy(traindataset[int(args.sample_each_llm[i]*args.train_ratio):])
         all_data_examples += traindataset
         shuffled_traindataset = copy.deepcopy(traindataset)
         random.shuffle(shuffled_traindataset)
         # train-valid split
-        small_traindataset, small_validationdataset = copy.deepcopy(shuffled_traindataset[:int(args.num_use_samples_inner[i]*args.train_ratio)]), copy.deepcopy(shuffled_traindataset[int(args.num_use_samples_inner[i]*args.train_ratio):])
+        small_traindataset, small_validationdataset = copy.deepcopy(shuffled_traindataset[:int(args.sample_each_llm[i]*args.train_ratio)]), copy.deepcopy(shuffled_traindataset[int(args.sample_each_llm[i]*args.train_ratio):])
+        small_traindataset_idx = []
         for _i, data_item in enumerate(small_traindataset):
+            small_traindataset_idx.append(data_item.idx)
             data_item.idx = _i
         # for data_item in small_traindataset:
         #     print("in construct, small data", data_item.idx, data_item.text, data_item.label)
@@ -190,6 +202,16 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
         small_valid_data = data.Dataset(small_validationdataset, train_data.fields)
         small_valid_data_list.append(small_valid_data)
         # ############## construct all data and separate as train and test ##############
+
+        # save original text of small train dataset
+        args.samples_text[i] = []
+        total_sample_text = []
+        with jsonlines.open(f'{train_data_path}train.jsonl', 'r') as reader:
+            for json_obj in reader:
+                total_sample_text.append(json_obj['C'])
+        for _idx in small_traindataset_idx:
+            args.samples_text[i].append(total_sample_text[_idx])
+        print(f"[debug] sample_text has length {len(args.samples_text[i])}")
 
     fields_dev = {'text': ('text', TEXT),
                   'label': ('label', LABEL),
@@ -211,7 +233,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
         dev_data = data.Dataset(dev_data.examples[:num_use_samples_outer], dev_data.fields)
     else:
         if args.subset_outer: # currently use this one
-            indices = np.random.choice(list(range(args.num_use_samples_inner[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
+            indices = np.random.choice(list(range(args.sample_each_llm[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
             print(f"[debug] len(train_data.examples)={len(train_data.examples)}")
             data_sample_list = []
             for i in range(args.len_LLM):
@@ -261,8 +283,8 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
                          sort_within_batch=False,
                          repeat=False,
                          shuffle=False)
-    
-    # for im, small_train_data in enumerate(small_train_data_list):
+
+    # for im, small_train_data in enumerate(train_data_list):
     #     # if im != len(small_train_data_list)-1:
     #     if im != 0:
     #         continue
@@ -281,7 +303,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
     #         idx = batch.idx
     #         print(labels, idx)
     #         for _idx, _label in zip(idx, labels):
-    #             print(f"model#{im}:  idx={_idx}, text={small_train_data[_idx].text}, label={small_train_data[_idx].label}, batch_used_label={_label}")
+    #             print(f"model#{im}: idx={_idx}, label={small_train_data[_idx].label}, batch_used_label={_label}, text={small_train_data[_idx].text}")
     #             # print(f"batch: idx={_idx}, batch_used_text={_text}")
     #         break
     # for batch in test_iter:
@@ -293,7 +315,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
     #         print(f"test: idx={_idx}, text={test_data[_idx].text}, label={test_data[_idx].label}, batch_used_label={_label}")
     #         # print(f"batch: idx={_idx}, batch_used_text={_text}")
     #     break
-
+    
     print(f'[debug] before exiting load iter: len(train_iter_list)={len(train_iter_list)}, len(train_data_list)={len(train_data_list)}')
     return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, test_iter, TEXT, LABEL, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all
 
@@ -316,52 +338,97 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
     for i in range(args.len_LLM):
         print("train_dataset for", args.llms[i])
         # print("train_dataset for", args.llms[i], "file for data is", (file_choose(args.separate_num_use_samples_inner[i] if args.mix else file_choose(args.num_use_samples_inner[i]))))
+        if args.steps == 0:
+            train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/train.jsonl') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl')
+        else:
+            assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
+            train_data_path = f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.num_use_samples_each_step_extend[i]}/train.jsonl'
         train_data = TokenizedDataset(
-            file_path=(f'{args.gold_data_path}train.jsonl' if 'human'==args.llms[i] else (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/train.jsonl') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl')),
+            file_path=train_data_path,
             text_column='C',
             label_column='Y',
             index_column='idx',
             tokenizer=args.tokenizer,
             max_length=args.max_input_length,
             # device=args.device,
-            max_sample=args.num_use_samples_inner[i]
+            is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
+            max_sample=args.sample_each_llm[i],
+            small_dataset_shuffle=False,
         )
-        if 'human'==args.llms[i]:
-            args.num_use_samples_inner[i] = len(train_data)
-            print(f"exact training_data number is {args.num_use_samples_inner[i]}")
-        # train_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i])]).long().to(args.device)
-        train_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i])]).long()
+        # train_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i])]).long().to(args.device)
+        train_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i])]).long()
         
-        indices = list(range(args.num_use_samples_inner[i]))
+        indices = list(range(args.sample_each_llm[i]))
         random.shuffle(indices)
-        train_valid_pivot_point = int(args.num_use_samples_inner[i]*args.train_ratio)
+        train_valid_pivot_point = int(args.sample_each_llm[i]*args.train_ratio)
         
         # ############## separate as train and test ##############
         # train-valid split
         small_train_data = TokenizedDataset(
             file_path=(''),
         )
-        small_train_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[:train_valid_pivot_point]]
-        small_train_data.ids = copy.deepcopy(train_data.ids[indices[:train_valid_pivot_point]])
-        small_train_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[:train_valid_pivot_point]])
-        small_train_data.label = copy.deepcopy(train_data.label[indices[:train_valid_pivot_point]])
-        # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long().to(args.device)
-        small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+        small_train_data.copy_dataset(train_data, indices[:train_valid_pivot_point], new_idx=True)
+        # small_valid_data.copy_dataset(train_data, indices[train_valid_pivot_point:], new_idx=True)
+        # small_train_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[:train_valid_pivot_point]]
+        # small_train_data.ids = copy.deepcopy(train_data.ids[indices[:train_valid_pivot_point]])
+        # small_train_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[:train_valid_pivot_point]])
+        # small_train_data.label = copy.deepcopy(train_data.label[indices[:train_valid_pivot_point]])
+        # # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long().to(args.device)
+        # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+        # small_train_data.is_syn = copy.deepcopy(train_data.is_syn[indices[:train_valid_pivot_point]])
         
         small_valid_data = TokenizedDataset(
             file_path=(''),
         )
-        small_valid_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[train_valid_pivot_point:]]
-        small_valid_data.ids = copy.deepcopy(train_data.ids[indices[train_valid_pivot_point:]])
-        small_valid_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[train_valid_pivot_point:]])
-        small_valid_data.label = copy.deepcopy(train_data.label[indices[train_valid_pivot_point:]])
-        # small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long().to(args.device)
-        small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long()
+        small_valid_data.copy_dataset(train_data, indices[train_valid_pivot_point:], new_idx=True)
+        # small_valid_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[train_valid_pivot_point:]]
+        # small_valid_data.ids = copy.deepcopy(train_data.ids[indices[train_valid_pivot_point:]])
+        # small_valid_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[train_valid_pivot_point:]])
+        # small_valid_data.label = copy.deepcopy(train_data.label[indices[train_valid_pivot_point:]])
+        # # small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i]-train_valid_pivot_point)]).long().to(args.device)
+        # small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[i]-train_valid_pivot_point)]).long()
+        # small_valid_data.is_syn = copy.deepcopy(train_data.is_syn[indices[train_valid_pivot_point:]])
 
         train_data_list.append(train_data)
         small_train_data_list.append(small_train_data)
         small_valid_data_list.append(small_valid_data)
         # ############## separate as train and test ##############
+        
+        # save original text of small train dataset
+        args.samples_text[i] = [copy.deepcopy(text) for text in small_train_data.text]
+        print(f"[debug] sample_text has length {len(args.samples_text[i])}")
+
+    args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data_list[0].label))
+
+    print("golden train data")
+    gold_data = TokenizedDataset(
+        file_path=(gold_data_path+'train.jsonl'),
+        text_column='text',
+        label_column='label',
+        index_column='idx',
+        tokenizer=args.tokenizer,
+        device=args.device,
+        max_length=args.max_input_length,
+        max_sample=((args.gold_data_num+args.num_classes-1)//args.num_classes)*args.num_classes,
+        # max_sample=-1 # use all that is provided in the dataset file
+        is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
+        small_dataset_shuffle=True,
+    )
+    gold_data_num = len(gold_data.text)
+    indices = list(range(len(gold_data.text)))
+    random.shuffle(indices)
+    gold_train_valid_pivot_point = int(len(gold_data.text)*args.train_ratio)
+    small_gold_train_data = TokenizedDataset(
+        file_path=(''),
+    )
+    small_gold_train_data.copy_dataset(gold_data, indices[:gold_train_valid_pivot_point], new_idx=True)
+    small_gold_valid_data = TokenizedDataset(
+        file_path=(''),
+    )
+    small_gold_valid_data.copy_dataset(gold_data, indices[gold_train_valid_pivot_point:], new_idx=True)
+    train_data_list.append(gold_data)
+    small_train_data_list.append(small_gold_train_data)
+    small_valid_data_list.append(small_gold_valid_data)
 
     print("test dataset")
     test_data = TokenizedDataset(
@@ -373,6 +440,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         tokenizer=args.tokenizer,
         device=args.device,
         max_length=args.max_input_length,
+        is_syn_column=None,
         # max_sample=100 # use all that is provided in the dataset file
         max_sample=-1 # use all that is provided in the dataset file
     )
@@ -387,7 +455,9 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             index_column='idx',
             tokenizer=args.tokenizer,
             device=args.device,
-            max_length=args.max_input_length
+            max_length=args.max_input_length,
+            is_syn_column=None,
+            small_dataset_shuffle=False,
         )
         dev_data = TokenizedDataset(
             file_path=(gold_data_path+'train.jsonl'),
@@ -397,11 +467,13 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             max_length=args.max_input_length,
             device=args.device,
-            max_sample=num_use_samples_outer
+            max_sample=num_use_samples_outer,
+            is_syn_column=None,
+            small_dataset_shuffle=False,
         )
     else:
         if args.subset_outer: # currently use this one
-            indices = np.random.choice(list(range(args.num_use_samples_inner[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
+            indices = np.random.choice(list(range(args.sample_each_llm[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
             print(f"[debug] len(train_data.ids)={len(train_data.ids)}")
             data_sample_list = []
             dev_data = TokenizedDataset(
@@ -414,98 +486,64 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
                 # device=args.device,
                 # max_sample=1
             )
-            dev_data.text = [] # clear all the samples
-            dev_data.ids = [] # clear all the samples
-            dev_data.attention_mask = [] # clear all the samples
-            dev_data.label = [] # clear all the samples
-            dev_data.idx = [] # clear all the samples
-            for i in range(args.len_LLM):
-                print(f"[debug] {len(train_data_list[i])=}")
-                dev_data.text += [train_data_list[i].text[ix] for ix in indices]
-                dev_data.ids += [train_data_list[i].ids[ix] for ix in indices]
-                dev_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in indices]
-                dev_data.label += [train_data_list[i].label[ix] for ix in indices]
-                dev_data.idx += [train_data_list[i].idx[ix] for ix in indices]
+            dev_data.clear_and_copy_dataset(train_data_list, indices, args.len_LLM, new_idx=False)
+            # dev_data.text = [] # clear all the samples
+            # dev_data.ids = [] # clear all the samples
+            # dev_data.attention_mask = [] # clear all the samples
+            # dev_data.label = [] # clear all the samples
+            # dev_data.idx = [] # clear all the samples
+            # dev_data.is_syn = [] # clear all the samples
+            # for i in range(args.len_LLM):
+            #     print(f"[debug] {len(train_data_list[i])=}")
+            #     dev_data.text += [train_data_list[i].text[ix] for ix in indices]
+            #     dev_data.ids += [train_data_list[i].ids[ix] for ix in indices]
+            #     dev_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in indices]
+            #     dev_data.label += [train_data_list[i].label[ix] for ix in indices]
+            #     dev_data.idx += [train_data_list[i].idx[ix] for ix in indices]
+            #     dev_data.is_syn += [train_data_list[i].is_syn[ix] for ix in indices]
         else:
             dev_data=train_data
         dev_data_all=train_data
 
-    if args.mix_to_form_single:
-        # mix all the respetive dataset into one
-        train_data = TokenizedDataset(
-                file_path=(''),
-            )
-        train_data.text = [] # clear all the samples
-        train_data.ids = [] # clear all the samples
-        train_data.attention_mask = [] # clear all the samples
-        train_data.label = [] # clear all the samples
-        train_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            print(f"[debug] {len(train_data_list[i])=}")
-            train_data.text += [train_data_list[i].text[ix] for ix in range(len(train_data_list[i].text))]
-            train_data.ids += [train_data_list[i].ids[ix] for ix in range(len(train_data_list[i].ids))]
-            train_data.attention_mask += [train_data_list[i].attention_mask[ix] for ix in range(len(train_data_list[i].attention_mask))]
-            train_data.label += [train_data_list[i].label[ix] for ix in range(len(train_data_list[i].label))]
-            train_data.idx += [train_data_list[i].idx[ix] for ix in range(len(train_data_list[i].idx))]
-        train_data.idx = [_i for _i in range(len(train_data.idx))]
-        train_data.ids = torch.stack(train_data.ids).squeeze()
-        train_data.attention_mask = torch.stack(train_data.attention_mask).squeeze()
-        train_data.label = torch.tensor(train_data.label).long()
-        train_data.idx = torch.tensor(train_data.idx).long()
-        small_train_data = TokenizedDataset(
-                file_path=(''),
-            )
-        small_train_data.text = [] # clear all the samples
-        small_train_data.ids = [] # clear all the samples
-        small_train_data.attention_mask = [] # clear all the samples
-        small_train_data.label = [] # clear all the samples
-        small_train_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            print(f"[debug] {len(small_train_data_list[i])=}")
-            small_train_data.text += [small_train_data_list[i].text[ix] for ix in range(len(small_train_data_list[i].text))]
-            small_train_data.ids += [small_train_data_list[i].ids[ix] for ix in range(len(small_train_data_list[i].ids))]
-            small_train_data.attention_mask += [small_train_data_list[i].attention_mask[ix] for ix in range(len(small_train_data_list[i].attention_mask))]
-            small_train_data.label += [small_train_data_list[i].label[ix] for ix in range(len(small_train_data_list[i].label))]
-            small_train_data.idx += [small_train_data_list[i].idx[ix] for ix in range(len(small_train_data_list[i].idx))]
-        small_train_data.idx = [_i for _i in range(len(small_train_data.idx))]
-        small_train_data.ids = torch.stack(small_train_data.ids).squeeze()
-        small_train_data.attention_mask = torch.stack(small_train_data.attention_mask).squeeze()
-        small_train_data.label = torch.tensor(small_train_data.label).long()
-        small_train_data.idx = torch.tensor(small_train_data.idx).long()
-        small_valid_data = TokenizedDataset(
-                file_path=(''),
-            )
-        small_valid_data.text = [] # clear all the samples
-        small_valid_data.ids = [] # clear all the samples
-        small_valid_data.attention_mask = [] # clear all the samples
-        small_valid_data.label = [] # clear all the samples
-        small_valid_data.idx = [] # clear all the samples
-        for i in range(args.len_LLM):
-            print(f"[debug] {len(small_valid_data_list[i])=}")
-            small_valid_data.text += [small_valid_data_list[i].text[ix] for ix in range(len(small_valid_data_list[i].text))]
-            small_valid_data.ids += [small_valid_data_list[i].ids[ix] for ix in range(len(small_valid_data_list[i].ids))]
-            small_valid_data.attention_mask += [small_valid_data_list[i].attention_mask[ix] for ix in range(len(small_valid_data_list[i].attention_mask))]
-            small_valid_data.label += [small_valid_data_list[i].label[ix] for ix in range(len(small_valid_data_list[i].label))]
-            small_valid_data.idx += [small_valid_data_list[i].idx[ix] for ix in range(len(small_valid_data_list[i].idx))]
-        small_valid_data.idx = [_i for _i in range(len(small_valid_data.idx))]
-        small_valid_data.ids = torch.stack(small_valid_data.ids).squeeze()
-        small_valid_data.attention_mask = torch.stack(small_valid_data.attention_mask).squeeze()
-        small_valid_data.label = torch.tensor(small_valid_data.label).long()
-        small_valid_data.idx = torch.tensor(small_valid_data.idx).long()
+    # if args.mix_to_form_single:
+    #     # mix all the respetive dataset into one
+    #     train_data = TokenizedDataset(
+    #             file_path=(''),
+    #         )
+    #     train_data.clear_and_copy_dataset(train_data_list+[gold_data], [], args.len_LLM+1, new_idx=True)
+    #     small_train_data = TokenizedDataset(
+    #             file_path=(''),
+    #         )
+    #     small_train_data.clear_and_copy_dataset(small_train_data_list+[small_gold_train_data], [], args.len_LLM+1, new_idx=True)
+    #     small_valid_data = TokenizedDataset(
+    #             file_path=(''),
+    #         )
+    #     small_valid_data.clear_and_copy_dataset(small_valid_data_list+[small_gold_valid_data], [], args.len_LLM+1, new_idx=True)
 
-        train_data_list = [train_data]
-        small_train_data_list = [small_train_data]
-        small_valid_data_list = [small_valid_data]
 
     train_iter_list = [DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_train) for dataset in train_data_list]
     small_train_iter_list = [DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_train) for dataset in small_train_data_list]
     small_valid_iter_list = [DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_train) for dataset in small_valid_data_list]
     train_iter_backward_list = [DataLoader(dataset, batch_size=backward_batch_size, shuffle=shuffle_train) for dataset in train_data_list]
     dev_iter = DataLoader(dev_data, batch_size=batch_size, shuffle=shuffle_train)
+    gold_iter = DataLoader(gold_data, batch_size=batch_size, shuffle=True)
     test_iter = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
+    # for im, small_train_data in enumerate(train_data_list):
+    #     # if im != len(small_train_data_list)-1:
+    #     if im != 0:
+    #         continue
+    #     train_iter = DataLoader(small_train_data, batch_size=batch_size, shuffle=shuffle_train)
+    #     for batch in train_iter:
+    #         inputs, attention_mask, labels, idx = batch
+    #         print(labels, idx)
+    #         for _idx, _label in zip(idx, labels):
+    #             print(f"model#{im}: idx={_idx}, label={small_train_data.label[_idx]}, text={small_train_data.text[_idx]}")
+    #             # print(f"batch: idx={_idx}, batch_used_text={_text}")
+    #         break
+
     print(f'[debug] before exiting load iter: len(train_iter_list)={len(train_iter_list)}, len(train_data_list)={len(train_data_list)}')
-    return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, test_iter, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all
+    return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, gold_iter, test_iter, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all, gold_data
 
 
 def count_parameters(model):
@@ -530,7 +568,7 @@ def eval(args, model, data_iter, name, epoch=None, use_soft_label=False):
                 total_loss += loss.item()
                 correct_num += (predicts == labels).sum().item()
                 err_num += (predicts != labels).sum().item()
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         with torch.no_grad():
             for i, batch in enumerate(data_iter):
                 inputs, attention_mask, labels, idx = batch
@@ -577,7 +615,7 @@ def train(args, model, train_iter, dev_iter, loss_func, optimizer, epochs, patie
     best_acc = -1
     patience_counter = 0
 
-    if 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         if args.optim =='Adam':
             optimizer = Adam(model.parameters(), lr=args.inner_lr)
         elif args.optim =='SGD':
@@ -608,7 +646,7 @@ def train(args, model, train_iter, dev_iter, loss_func, optimizer, epochs, patie
                 optimizer.step()
 
             tqdm.write("Epoch: %d, Train Loss: %d" % (epoch + 1, total_loss))
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             for batch in tqdm(train_iter):
                 inputs, attention_mask, labels, idx = batch
                 inputs = inputs.to(args.device)
@@ -664,7 +702,7 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         train_iter = DataLoader(train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
         # print(f"{train_data[0]=}, {train_data[1]=}")
     # print(f"[debug] in train_to_converge theta.shape={theta.shape}, len(train_data)={len(train_data)}")
@@ -673,7 +711,6 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
     # print(f'a model on gpu, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
     # print(f"{theta.shape=}, {type(theta)=}")
     for epoch in range(epoch_converge):
-        model_copy.to(args.device)
         model_copy.train()
         top1 = AverageMeter("OuterAcc@1", ":6.2f")
         for batch in tqdm(train_iter):
@@ -681,7 +718,7 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
                 (inputs, lens), labels = batch.text, batch.label
                 idx = batch.idx
                 # print(f"{idx=}")
-            elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 inputs, attention_mask, labels, idx = batch
                 inputs = inputs.to(args.device)
                 attention_mask = attention_mask.to(args.device)
@@ -699,7 +736,7 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
             # print(f'after puting a batch on gpu, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             if args.small_model_name.upper() == 'LSTM':
                 output = model_copy(inputs, lens)
-            elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 output = model_copy(inputs, attention_mask=attention_mask, labels=labels).logits
             # print(f"[debug] in train_to_converge each batch, len(outputs)={len(output)}")
             # print(f"[debug] in train_to_converge each batch, idx={idx}")
@@ -732,25 +769,7 @@ def train_to_converge(args, model, train_data, theta, epoch_converge, inner_obj,
             loss.backward()
             optimizer.step()
             # print(f'after a batch train, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-        valid_acc, valid_loss = eval(args, model_copy, test_loader, "validate")
-        print(f"train_iter={epoch}, {valid_acc=}, {valid_loss=}")
-        logging.info(f"train_iter={epoch}, {valid_acc=}, {valid_loss=}")
         
-        # if 'bert' in args.small_model_name.lower():
-        #     inputs = inputs.to(args.device)
-        #     attention_mask = attention_mask.to(args.device)
-        #     labels = labels.to(args.device)
-        #     idx = idx.to(args.device)
-        # acc = eval(args, model_copy, test_loader, name="test", epoch=epoch)
-        # print(f"see the train acc for each iteration: iter#{epoch}, test_data_acc={acc}")
-        # acc = eval(args, model_copy, train_iter, name="test", epoch=epoch)
-        # print(f"see the train acc for each iteration: iter#{epoch}, train_data_acc={acc}")
-
-            # if epoch == 0 and epoch == epoch_converge-1:
-            # # if epoch > 0 and epoch == epoch_converge-1:
-            #     for _idx, _input, _output, _label in zip(idx, inputs, output,  labels):
-            #         print(f"{epoch=}, idx={_idx}, text={train_data[_idx].text}, label={train_data[_idx].label}, output={_output}, logits={torch.nn.functional.softmax(_output,dim=-1)} predict={torch.argmax(_output,dim=-1)} batch_used_label={_label}")
-    
     opt_checkpoints_cache.append(optimizer.state_dict())
     model_copy.to("cpu")
     model_weights_cache.append(copy.deepcopy(model_copy.state_dict()))
@@ -792,22 +811,25 @@ def train_to_converge_fused(args, model, train_data, theta, selected_sample_inde
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column] ]
-            selected_train_data.idx += [_id]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # selected_train_data.is_syn = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column] ]
+        #     selected_train_data.idx += [_id]
+        #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+        #     _id += 1
         theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
 
@@ -823,7 +845,7 @@ def train_to_converge_fused(args, model, train_data, theta, selected_sample_inde
                 # model_copy.zero_grad() # this is equal to optimizer.zero_grad() when optimizer contains only this model's whole parameters
                 optimizer.zero_grad()
                 output = model_copy(inputs, lens)
-            elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 inputs, attention_mask, labels, idx = batch
                 inputs = inputs.to(args.device)
                 attention_mask = attention_mask.to(args.device)
@@ -876,7 +898,7 @@ def train_to_converge_with_weight_adjust_fused(args, model, train_data, theta, s
                 for column in range(len(train_data[row].examples)):
                     selected_sample_rows.append(row)
                     selected_sample_columns.append(column)
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             for row in range(args.len_LLM):
                 for column in range(len(train_data[row].idx)):
                     selected_sample_rows.append(row)
@@ -895,23 +917,24 @@ def train_to_converge_with_weight_adjust_fused(args, model, train_data, theta, s
             # print(theta)
             # theta = torch.stack(theta)
             # print(type(theta), theta.shape)
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             _id = 0
             selected_train_data = TokenizedDataset(
-                file_path=('')
+                file_path=(''),
             )
-            selected_train_data.text = [] # clear all the samples
-            selected_train_data.ids = [] # clear all the samples
-            selected_train_data.attention_mask = [] # clear all the samples
-            selected_train_data.label = [] # clear all the samples
-            selected_train_data.idx = [] # clear all the samples
-            for row, column in zip(selected_sample_rows,selected_sample_columns):
-                selected_train_data.text += [train_data[row].text[column]]
-                selected_train_data.ids += [train_data[row].ids[column]]
-                selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-                selected_train_data.label += [train_data[row].label[column]]
-                selected_train_data.idx += [_id]
-                _id += 1
+            selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+            # selected_train_data.text = [] # clear all the samples
+            # selected_train_data.ids = [] # clear all the samples
+            # selected_train_data.attention_mask = [] # clear all the samples
+            # selected_train_data.label = [] # clear all the samples
+            # selected_train_data.idx = [] # clear all the samples
+            # for row, column in zip(selected_sample_rows,selected_sample_columns):
+            #     selected_train_data.text += [train_data[row].text[column]]
+            #     selected_train_data.ids += [train_data[row].ids[column]]
+            #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+            #     selected_train_data.label += [train_data[row].label[column]]
+            #     selected_train_data.idx += [_id]
+            #     _id += 1
             theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
             init_theta = copy.deepcopy(theta)
     elif len(train_data) == 1:
@@ -962,39 +985,6 @@ def train_to_converge_with_weight_adjust_fused(args, model, train_data, theta, s
         best_theta=theta_score
         best_theta_each_iter.append(copy.deepcopy(best_theta))
 
-        # model_copy.to(args.device)
-        # for epoch in range(epoch_converge):
-        #     model_copy.train()
-        #     top1 = AverageMeter("OuterAcc@1", ":6.2f")
-        #     for batch in tqdm(train_iter):
-        #         (inputs, lens), labels = batch.text, batch.label
-        #         labels = batch.label
-        #         idx = batch.idx
-        #         # model_copy.zero_grad() # this is equal to optimizer.zero_grad() when optimizer contains only this model's whole parameters
-        #         optimizer.zero_grad()
-        #         output = model_copy(inputs, lens)
-        #         if inner_obj == "ce":
-        #             if not args.normalize:
-        #                 loss = torch.mean(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])
-        #             else:
-        #                 loss = torch.sum(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])/torch.sum(theta[idx])
-        #         elif inner_obj=='kl':
-        #             one_hot = torch.zeros(len(labels),len(LABEL.vocab.stoi)).cuda().scatter_(1, labels.view(-1, 1), args.init_label).cuda()
-        #             one_hot = F.softmax(one_hot, dim=1)
-        #             loss_vec = torch.mean(F.softmax(output, dim=1)*(F.log_softmax(output, dim=1)-torch.log(one_hot)), dim=1)
-        #             loss = torch.mean(loss_vec*theta[idx])
-        #         acc = loss_utils.accuracy(output, labels)
-        #         top1.update(acc, labels.size(0))
-        #         losses.update(loss.item(), labels.size(0))
-        #         loss.backward()
-        #         optimizer.step()
-        # model_copy.to("cpu")
-        # opt_checkpoints_cache.append(optimizer.state_dict())
-        # model_weights_cache.append(copy.deepcopy(model_copy.state_dict()))
-        # if math.isnan(loss.item()):
-        #     diverged = True
-        # return model_copy, losses.avg, top1.avg, model_weights_cache, opt_checkpoints_cache, diverged
-
         if args.kd_slm == 2: # self-iterate kd, use trained student model as teacher model
             # construct new soft_label
             print(f'[debug], original_soft_label {soft_label}')
@@ -1005,7 +995,7 @@ def train_to_converge_with_weight_adjust_fused(args, model, train_data, theta, s
     else:
         selected_sample_rows = torch.tensor([0 for _ in range(len(train_data[0]))], dtype=torch.long).to(theta[0].device)
         selected_sample_columns = torch.tensor([_i for _i in range(len(train_data[0]))], dtype=torch.long).to(theta[0].device)
-        torch.save((selected_sample_rows, selected_sample_columns, init_theta, torch.stack(best_theta_each_iter)), f"{args.result_file_path}/all_sample_used_self_adjust_{outer_iter}.pth")
+        torch.save((selected_sample_rows, selected_sample_columns, init_theta, torch.cat(best_theta_each_iter,dim=-1)), f"{args.result_file_path}/all_sample_used_self_adjust_{outer_iter}.pth")
     return model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft
 
 
@@ -1029,7 +1019,7 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         # if use all, put all the index together
         if selected_sample_rows == None or selected_sample_columns == None:
             selected_sample_rows, selected_sample_columns = [], []
-            for row in range(args.len_LLM):
+            for row in range(args.len_LLM+1):
                 for column in range(len(train_data[row].examples)):
                     selected_sample_rows.append(row)
                     selected_sample_columns.append(column)
@@ -1052,11 +1042,11 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         # if use all, put all the index together
         if selected_sample_rows == None or selected_sample_columns == None:
             selected_sample_rows, selected_sample_columns = [], []
-            for row in range(args.len_LLM):
+            for row in range(args.len_LLM+1):
                 for column in range(len(train_data[row].idx)):
                     selected_sample_rows.append(row)
                     selected_sample_columns.append(column)
@@ -1064,18 +1054,21 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column]]
-            selected_train_data.idx += [_id]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # selected_train_data.is_syn = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column]]
+        #     selected_train_data.idx += [_id]
+        #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+        #     _id += 1
         theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
     init_theta = copy.deepcopy(theta)
@@ -1112,6 +1105,7 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         theta = copy.deepcopy(theta_mapped[0])
     theta_delta = theta - init_theta
     print(f"ratio of elements whose delta in theta larger than 0.0 is {torch.sum(theta_delta >= 0.0).item()/theta_delta.numel()}, total {torch.sum(theta_delta >= 0.0).item()}/{theta_delta.numel()}")
+    logging.info(f"ratio of elements whose delta in theta larger than 0.0 is {torch.sum(theta_delta >= 0.0).item()/theta_delta.numel()}, total {torch.sum(theta_delta >= 0.0).item()}/{theta_delta.numel()}")
     
     new_selected_sample_rows, new_selected_sample_columns = [], []
     for i, (r,c) in enumerate(zip(selected_sample_rows,selected_sample_columns)):
@@ -1136,314 +1130,6 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         return new_selected_sample_rows, new_selected_sample_columns, low_quality_sample_rows, low_quality_sample_columns
 
 
-# ################################## vote for low quality samples ##################################
-# def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train_data, theta, trained_models, selected_sample_indexs, epoch_adjust, epoch_converge, inner_obj, test_loader, outer_iter):
-#     theta_for_function_call = [copy.deepcopy(_theta) for _theta in theta]
-#     for _theta in theta:
-#         _theta = _theta.detach()
-#     _saved_theta = [copy.deepcopy(_theta) for _theta in theta]
-#     selected_sample_rows, selected_sample_columns = selected_sample_indexs[0], selected_sample_indexs[1]  
-#     # print(f"{len(train_data[0].idx)=}, {selected_sample_rows=}")
-#     # if selected_sample_rows == None or selected_sample_columns == None:
-#     #     selected_sample_rows, selected_sample_columns = [], []
-#     #     if args.small_model_name.upper() == 'LSTM':
-#     #         for row in range(args.len_LLM):
-#     #             for column in range(len(train_data[row].examples)):
-#     #                 selected_sample_rows.append(row)
-#     #                 selected_sample_columns.append(column)
-#     #     elif 'bert' in args.small_model_name.lower():
-#     #         for row in range(args.len_LLM):
-#     #             for column in range(len(train_data[row].idx)):
-#     #                 selected_sample_rows.append(row)
-#     #                 selected_sample_columns.append(column)
-#     # if type(selected_sample_rows == torch.Tensor):
-#     #     selected_sample_rows = selected_sample_rows.long().to(args.device)
-#     #     selected_sample_columns = selected_sample_columns.long().to(args.device)
-#     # else:
-#     #     selected_sample_rows = torch.tensor(selected_sample_rows, dtype=torch.long).to(args.device)
-#     #     selected_sample_columns = torch.tensor(selected_sample_columns, dtype=torch.long).to(args.device)
-#     assert selected_sample_rows == None and selected_sample_columns == None, "For increased theta selection and flipping, no previous selection should be passed"
-#     selected_sample_rows, selected_sample_columns = [], []
-#     if args.small_model_name.upper() == 'LSTM':
-#         for row in range(args.len_LLM):
-#             for column in range(len(train_data[row].examples)):
-#                 selected_sample_rows.append(row)
-#                 selected_sample_columns.append(column)
-#     elif 'bert' in args.small_model_name.lower():
-#         for row in range(args.len_LLM):
-#             for column in range(len(train_data[row].idx)):
-#                 selected_sample_rows.append(row)
-#                 selected_sample_columns.append(column)
-#     selected_sample_rows = torch.tensor(selected_sample_rows, dtype=torch.long).to(args.device)
-#     selected_sample_columns = torch.tensor(selected_sample_columns, dtype=torch.long).to(args.device)
-#     # print(f"{selected_sample_rows=}, {len(train_data[0].idx)=}, {selected_sample_rows.shape=}")
-    
-#     model_copy = copy.deepcopy(model)
-#     # if args.optim =='Adam':
-#     #     optimizer = Adam(model_copy.parameters(), lr=args.inner_lr)
-#     # elif args.optim =='SGD':
-#     #     optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
-#     losses = AverageMeter("Loss", ":.3f")
-    
-#     # step (1), gather all the samples for selecting those with increased weight
-#     model_weights_cache = []
-#     opt_checkpoints_cache = []
-#     diverged = False
-#     selected_train_dataset = []
-#     index_pairs = set()
-#     _id = 0
-#     if args.small_model_name.upper() == 'LSTM':
-#         for row, column in zip(selected_sample_rows,selected_sample_columns):
-#             selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
-#             selected_train_dataset[_id].idx = _id
-#             _id += 1
-#             index_pairs.add((row.item(), column.item()))
-#         bad_sample_row, bad_sample_column = [], []
-#         # for row in range(args.len_LLM):
-#         #     for column in range(len(train_data[row])):
-#         #         _current_pair = (row, column)
-#         #         if not _current_pair in index_pairs:
-#         #             selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
-#         #             selected_train_dataset[_id].idx = _id
-#         #             # # print("before", selected_train_dataset[_id].label)
-#         #             # selected_train_dataset[_id].label = majority_voting_label(args, train_data[row][column], trained_models, train_data[0].fields)
-#         #             # # print("after", selected_train_dataset[_id].label)
-#         #             _id += 1
-#         #             index_pairs.add((row, column))
-#         #             bad_sample_row.append(row)
-#         #             bad_sample_column.append(column)
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         # selected_sample_rows = torch.cat((selected_sample_rows, torch.tensor(bad_sample_row, dtype=torch.long, device=args.device)))
-#         # selected_sample_columns = torch.cat((selected_sample_columns, torch.tensor(bad_sample_column, dtype=torch.long, device=args.device)))
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         assert _id == sum(args.num_use_samples_inner)
-#         selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-#         # print(selected_train_data.fields)
-#         # selected_train_data = torch.tensor(train_data)[selected_sample_rows,selected_sample_columns]
-#         theta = torch.stack(_saved_theta)[selected_sample_rows,selected_sample_columns]
-#         # print(theta)
-#         # theta = torch.stack(theta)
-#         # print(type(theta), theta.shape)
-#         train_iter, = BucketIterator.splits(
-#             (selected_train_data,),
-#             batch_sizes=(args.train_batch_size,),
-#             device=device,
-#             sort_key=lambda x: len(x.text),
-#             sort_within_batch=True,
-#             repeat=False,
-#             shuffle=args.shuffle_train,
-#         )
-#     elif 'bert' in args.small_model_name.lower():
-#         # add samples with index indicating
-#         selected_train_data = TokenizedDataset(
-#             file_path=(''),
-#         )
-#         selected_train_data.text = [] # clear all the samples
-#         selected_train_data.ids = [] # clear all the samples
-#         selected_train_data.attention_mask = [] # clear all the samples
-#         selected_train_data.label = [] # clear all the samples
-#         selected_train_data.idx = [] # clear all the samples
-#         for row, column in zip(selected_sample_rows,selected_sample_columns):
-#             # print(f"{_id=}, {row=}, {column=}")
-#             selected_train_data.text += [train_data[row].text[column]]
-#             selected_train_data.ids += [train_data[row].ids[column]]
-#             selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-#             selected_train_data.label += [train_data[row].label[column]]
-#             selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
-#             _id += 1
-#             index_pairs.add((row.item(), column.item()))
-#         # bad_sample_row, bad_sample_column = [], []
-#         # for row in range(args.len_LLM):
-#         #     for column in range(len(train_data[row])):
-#         #         _current_pair = (row, column)
-#         #         if not _current_pair in index_pairs:
-#         #             selected_train_data.text += [train_data[row].text[column]]
-#         #             selected_train_data.ids += [train_data[row].ids[column]]
-#         #             selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-#         #             selected_train_data.label += [train_data[row].label[column]]
-#         #             # selected_train_data.label += [torch.tensor(majority_voting_label(args, train_data[row][column], trained_models), dtype=torch.long)]
-#         #             selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
-#         #             _id += 1
-#         #             index_pairs.add((row, column))
-#         #             bad_sample_row.append(row)
-#         #             bad_sample_column.append(column)
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         # selected_sample_rows = torch.cat((selected_sample_rows, torch.tensor(bad_sample_row, dtype=torch.long, device=args.device)))
-#         # selected_sample_columns = torch.cat((selected_sample_columns, torch.tensor(bad_sample_column, dtype=torch.long, device=args.device)))
-#         # # print(f"{_id=}, {len(selected_sample_rows)=}, {len(selected_sample_columns)=}")
-#         assert _id == sum(args.num_use_samples_inner), f"{_id=}, {sum(args.num_use_samples_inner)=}, {args.num_use_samples_inner=}"
-#         theta = torch.tensor([_saved_theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
-#         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-#     init_theta = copy.deepcopy(theta)
-    
-#     for epoch in range(SELF_WEIGHT_ADJUST_EPOCH):
-#         print(f"epoch #{epoch} for self-weight select")
-#         current_outer_iter_trained_model = []
-#         theta_mapped = copy.deepcopy(theta)
-#         # print(type(theta_mapped),theta_mapped)
-#         # best_theta = copy.deepcopy(theta)
-            
-#         diverged = True # diverged==True means loss==nan, which means the training failed
-#         while diverged:
-#             model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
-#             print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-#             if epoch_adjust % args.check_ft_every==0:
-#                 model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader)
-#                 # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
-
-#         current_outer_iter_trained_model.append(model_copy_converged)
-        
-#         if epoch_adjust % args.check_ft_every == 0:
-#             test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-#             print(f"weight-adjust-for-selection-on-fused-dataset: #fused_adjust_iter={epoch}, beta({args.BETA}), train_loss_selction_ft={loss_ft}, train_acc_selction_ft={train_acc_ft}, test_acc_selction_ft={test_acc1_ft}, test_loss_selction_ft={test_loss_ft}")
-#             logging.info(f"weight-adjust-for-selection-on-fused-dataset: , #fused_adjust_iter={epoch}, beta({args.BETA}), train_loss_selction_ft={loss_ft}, train_acc_selction_ft={train_acc_ft}, test_acc_selction_ft={test_acc1_ft}, test_loss_selction_ft={test_loss_ft}")
-#             if args.wandb:
-#                 wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-
-#         theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
-#         theta = copy.deepcopy(theta_mapped[0])
-#     theta_delta = theta - init_theta
-#     print(f"ratio of elements whose delta in theta larger than 0.0 is {torch.sum(theta_delta >= 0.0).item()/theta_delta.numel()}, total {torch.sum(theta_delta >= 0.0).item()}/{theta_delta.numel()}")
-#     logging.info(f"ratio of elements whose delta in theta larger than 0.0 is {torch.sum(theta_delta >= 0.0).item()/theta_delta.numel()}, total {torch.sum(theta_delta >= 0.0).item()}/{theta_delta.numel()}")
-    
-#     # choose samples that has increased weight as "high quality sample"
-#     # print(f"{theta_delta=}")
-#     new_selected_sample_rows, new_selected_sample_columns = [], []
-#     for i, (r,c) in enumerate(zip(selected_sample_rows,selected_sample_columns)):
-#         if theta_delta[i] >= 0.0:
-#             new_selected_sample_rows.append(r)
-#             new_selected_sample_columns.append(c)
-#     # print(f"selected sample should equal to the number of elements with theta delta larger than 0.0, that is {len(new_selected_sample_rows)} and {len(new_selected_sample_columns)} should == {torch.sum(theta_delta >= 0.0).item()}")
-#     assert(torch.sum(theta_delta >= 0.0).item()==len(new_selected_sample_rows) and len(new_selected_sample_rows)==len(new_selected_sample_columns))
-#     low_quality_sample_rows, low_quality_sample_columns = [], []
-#     for i, (r,c) in enumerate(zip(selected_sample_rows,selected_sample_columns)):
-#         if theta_delta[i] < 0.0:
-#             low_quality_sample_rows.append(r)
-#             low_quality_sample_columns.append(c)
-#             # print(i,r,c)
-#     # print(f"{new_selected_sample_rows=}, {new_selected_sample_columns=}")
-#     # print(f"{low_quality_sample_rows=}, {low_quality_sample_columns=}")
-    
-#     # step(2): flip data
-#     model_weights_cache = []
-#     opt_checkpoints_cache = []
-#     diverged = False
-#     # selected_train_dataset = []
-#     if args.small_model_name.upper() == 'LSTM':
-#         print(f"{type(train_data[0].examples)=}")
-#         new_train_data = [data.Dataset(copy.deepcopy(train_data[_i].examples), train_data[_i].fields) for _i in range(args.len_LLM)]
-#         new_small_train_data = []
-#         new_small_valid_data = []
-#         change_count = 0
-#         for row, column in zip(low_quality_sample_rows, low_quality_sample_columns):
-#             _id = args.accumulate_sampels[row].item()+column
-#             original_label = selected_train_dataset[_id].label
-#             print("before", selected_train_dataset[_id].label)
-#             selected_train_dataset[_id].label = majority_voting_label(args, train_data[row][column], trained_models, train_data[0].fields)
-#             new_train_data[row][column].label = selected_train_dataset[_id].label 
-#             print("after", selected_train_dataset[_id].label)
-#             print(selected_train_dataset[_id].text)
-#             if original_label != new_train_data[row][column].label:
-#                 change_count += 1
-        
-#         for _i in range(args.len_LLM):
-#             traindataset = new_train_data[_i].examples[:args.num_use_samples_inner[_i]]
-#             random.shuffle(traindataset)
-#             # train-valid split
-#             small_traindataset, small_validationdataset = copy.deepcopy(traindataset[:int(args.num_use_samples_inner[_i]*args.train_ratio)]), copy.deepcopy(traindataset[int(args.num_use_samples_inner[_i]*args.train_ratio):])
-#             for _id, data_item in enumerate(small_traindataset):
-#                 data_item.idx = _id
-#             random.shuffle(small_traindataset)
-#             for _id, data_item in enumerate(small_validationdataset):
-#                 data_item.idx = _id
-#             # ############## construct all data and separate as train and test ##############
-#             new_small_train_data.append(data.Dataset(small_traindataset, new_train_data[_i].fields))
-#             new_small_valid_data.append(data.Dataset(small_validationdataset, new_train_data[_i].fields))
-#             # ############## construct all data and separate as train and test ##############
-        
-#         print(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         logging.info(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-#         # selected_train_data = torch.tensor(train_data)[new_selected_sample_rows,new_selected_sample_columns]
-#         theta = torch.stack(_saved_theta)[selected_sample_rows,selected_sample_columns]
-#         train_iter, = BucketIterator.splits(
-#             (selected_train_data,),
-#             batch_sizes=(args.train_batch_size,),
-#             device=device,
-#             sort_key=lambda x: len(x.text),
-#             sort_within_batch=True,
-#             repeat=False,
-#             shuffle=args.shuffle_train,
-#         )
-#     elif 'bert' in args.small_model_name.lower():
-#         new_train_data = []
-#         new_small_train_data = []
-#         new_small_valid_data = []
-#         for _i in range(args.len_LLM):
-#             new_train_data.append(TokenizedDataset(
-#                                     file_path=(''),
-#                                     ))
-#             new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
-#             new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
-#             new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
-#             new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
-#             new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
-#         change_count = 0
-#         for row, column in zip(low_quality_sample_rows, low_quality_sample_columns):
-#             _id = args.accumulate_sampels[row].item()+column
-#             # print(f"{_id=}, {row=}, {column=}")
-#             print("before", selected_train_data.label[_id])
-#             original_label = copy.deepcopy(selected_train_data.label[_id])
-#             # selected_train_data.label[_id] = torch.tensor(majority_voting_label(args, train_data[row][column], trained_models, origin_model_index=row, use_weight=True), dtype=torch.long)
-#             selected_train_data.label[_id] = torch.tensor(majority_voting_label(args, train_data[row][column], trained_models), dtype=torch.long)
-#             new_train_data[row].label[column] = selected_train_data.label[_id]
-#             print("after", selected_train_data.label[_id])
-#             print("after", selected_train_data.text[_id])
-#             if int(original_label) != int(new_train_data[row].label[column]):
-#                 change_count += 1
-        
-#         # ############## separate as train and test ##############
-#         for _i in range(args.len_LLM):
-#             indices = list(range(args.num_use_samples_inner[_i]))
-#             random.shuffle(indices)
-#             train_valid_pivot_point = int(args.num_use_samples_inner[_i]*args.train_ratio)
-#             # train-valid split
-#             small_train_data = TokenizedDataset(
-#                 file_path=(''),
-#             )
-#             small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
-#             small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
-#             small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
-#             small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
-#             small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
-#             small_valid_data = TokenizedDataset(
-#                 file_path=(''),
-#             )
-#             small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
-#             small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
-#             small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
-#             small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
-#             small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[_i]-train_valid_pivot_point)]).long()
-#             new_small_train_data.append(small_train_data)
-#             new_small_valid_data.append(small_valid_data)
-#             # ############## separate as train and test ##############
-
-#         print(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         logging.info(f"#low_quality_data {len(low_quality_sample_rows)} (ratio={torch.sum(theta_delta < 0.0).item()/theta_delta.numel()}), after majority voting, #label_changed_sample={change_count}")
-#         theta = torch.tensor([_saved_theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
-#         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-#     init_theta = copy.deepcopy(theta)
-
-#     if args.kd_slm == 0: # train on dataset that flipped 
-#         if 'Adjust' in args.fuse_dataset_weight:
-#             return train_to_converge_with_weight_adjust_fused(args, model, new_train_data, theta_for_function_call, (None, None), epoch_adjust, epoch_converge, inner_obj, test_loader, outer_iter)
-#         else:
-#             return train_to_converge_fused(args, model, new_train_data, theta_for_function_call, (None, None), args.epoch_converge_fully_train, args.inner_obj)
-#     else:
-#         # for kd_slm with sample quality separation by increasedTheta
-#         return new_selected_sample_rows, new_selected_sample_columns, low_quality_sample_rows, low_quality_sample_columns, new_train_data, new_small_train_data, new_small_valid_data
-# ################################## vote for low quality samples ##################################
-
 
 # ################################## vote for all ##################################
 def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train_data, theta, trained_models, selected_sample_indexs, epoch_adjust, epoch_converge, inner_obj, test_loader, outer_iter):
@@ -1452,25 +1138,6 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
         _theta = _theta.detach()
     _saved_theta = [copy.deepcopy(_theta) for _theta in theta]
     selected_sample_rows, selected_sample_columns = selected_sample_indexs[0], selected_sample_indexs[1]  
-    # print(f"{len(train_data[0].idx)=}, {selected_sample_rows=}")
-    # if selected_sample_rows == None or selected_sample_columns == None:
-    #     selected_sample_rows, selected_sample_columns = [], []
-    #     if args.small_model_name.upper() == 'LSTM':
-    #         for row in range(args.len_LLM):
-    #             for column in range(len(train_data[row].examples)):
-    #                 selected_sample_rows.append(row)
-    #                 selected_sample_columns.append(column)
-    #     elif 'bert' in args.small_model_name.lower():
-    #         for row in range(args.len_LLM):
-    #             for column in range(len(train_data[row].idx)):
-    #                 selected_sample_rows.append(row)
-    #                 selected_sample_columns.append(column)
-    # if type(selected_sample_rows == torch.Tensor):
-    #     selected_sample_rows = selected_sample_rows.long().to(args.device)
-    #     selected_sample_columns = selected_sample_columns.long().to(args.device)
-    # else:
-    #     selected_sample_rows = torch.tensor(selected_sample_rows, dtype=torch.long).to(args.device)
-    #     selected_sample_columns = torch.tensor(selected_sample_columns, dtype=torch.long).to(args.device)
     assert selected_sample_rows == None and selected_sample_columns == None, "For increased theta selection and flipping for all data, no previous selection should be passed"
     selected_sample_rows, selected_sample_columns = [], []
     if args.small_model_name.upper() == 'LSTM':
@@ -1478,7 +1145,7 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             for column in range(len(train_data[row].examples)):
                 selected_sample_rows.append(row)
                 selected_sample_columns.append(column)
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         for row in range(args.len_LLM):
             for column in range(len(train_data[row].idx)):
                 selected_sample_rows.append(row)
@@ -1518,12 +1185,13 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             print(selected_train_dataset[_id].text, f"{row.item()=}, {column.item()=}")
             if original_label != new_train_data[row][column].label:
                 change_count += 1
+        save_flipped_samples(args, new_train_data, f'train')
         
         for _i in range(args.len_LLM):
-            traindataset = new_train_data[_i].examples[:args.num_use_samples_inner[_i]]
+            traindataset = new_train_data[_i].examples[:args.sample_each_llm[_i]]
             random.shuffle(traindataset)
             # train-valid split
-            small_traindataset, small_validationdataset = copy.deepcopy(traindataset[:int(args.num_use_samples_inner[_i]*args.train_ratio)]), copy.deepcopy(traindataset[int(args.num_use_samples_inner[_i]*args.train_ratio):])
+            small_traindataset, small_validationdataset = copy.deepcopy(traindataset[:int(args.sample_each_llm[_i]*args.train_ratio)]), copy.deepcopy(traindataset[int(args.sample_each_llm[_i]*args.train_ratio):])
             for _id, data_item in enumerate(small_traindataset):
                 data_item.idx = _id
             random.shuffle(small_traindataset)
@@ -1548,24 +1216,27 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             repeat=False,
             shuffle=args.shuffle_train,
         )
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         # add samples with index indicating
         selected_train_data = TokenizedDataset(
             file_path=(''),
         )
-        selected_train_data.text = [] # clear all the samples
-        selected_train_data.ids = [] # clear all the samples
-        selected_train_data.attention_mask = [] # clear all the samples
-        selected_train_data.label = [] # clear all the samples
-        selected_train_data.idx = [] # clear all the samples
-        for row, column in zip(selected_sample_rows,selected_sample_columns):
-            # print(f"{_id=}, {row=}, {column=}")
-            selected_train_data.text += [train_data[row].text[column]]
-            selected_train_data.ids += [train_data[row].ids[column]]
-            selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-            selected_train_data.label += [train_data[row].label[column]]
-            selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
-            _id += 1
+        selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
+        # selected_train_data.text = [] # clear all the samples
+        # selected_train_data.ids = [] # clear all the samples
+        # selected_train_data.attention_mask = [] # clear all the samples
+        # selected_train_data.label = [] # clear all the samples
+        # selected_train_data.idx = [] # clear all the samples
+        # selected_train_data.is_syn = [] # clear all the samples
+        # for row, column in zip(selected_sample_rows,selected_sample_columns):
+        #     # print(f"{_id=}, {row=}, {column=}")
+        #     selected_train_data.text += [train_data[row].text[column]]
+        #     selected_train_data.ids += [train_data[row].ids[column]]
+        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+        #     selected_train_data.label += [train_data[row].label[column]]
+        #     selected_train_data.idx += [torch.tensor(_id, dtype=torch.long)]
+        #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+        #     _id += 1
         new_train_data = []
         new_small_train_data = []
         new_small_valid_data = []
@@ -1573,11 +1244,13 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             new_train_data.append(TokenizedDataset(
                                     file_path=(''),
                                     ))
-            new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
-            new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
-            new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
-            new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
-            new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
+            new_train_data[_i].copy_dataset(train_data[_i], [ix for ix in range(len(train_data[_i].text))], new_idx=False)
+            # new_train_data[_i].text = copy.deepcopy(train_data[_i].text)
+            # new_train_data[_i].ids = copy.deepcopy(train_data[_i].ids)
+            # new_train_data[_i].attention_mask = copy.deepcopy(train_data[_i].attention_mask)
+            # new_train_data[_i].label = copy.deepcopy(train_data[_i].label)
+            # new_train_data[_i].idx = copy.deepcopy(train_data[_i].idx)
+            # new_train_data[_i].is_syn = copy.deepcopy(train_data[_i].is_syn)
         change_count = 0
         for row, column in zip(selected_sample_rows,selected_sample_columns):
             _id = args.accumulate_sampels[row].item()+column
@@ -1591,29 +1264,34 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
             print("after", selected_train_data.text[_id])
             if int(original_label) != int(new_train_data[row].label[column]):
                 change_count += 1
-        
+        save_flipped_samples(args, new_train_data, f'train')
+
         # ############## separate as train and test ##############
         for _i in range(args.len_LLM):
-            indices = list(range(args.num_use_samples_inner[_i]))
+            indices = list(range(args.sample_each_llm[_i]))
             random.shuffle(indices)
-            train_valid_pivot_point = int(args.num_use_samples_inner[_i]*args.train_ratio)
+            train_valid_pivot_point = int(args.sample_each_llm[_i]*args.train_ratio)
             # train-valid split
             small_train_data = TokenizedDataset(
                 file_path=(''),
             )
-            small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
-            small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
-            small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
-            small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
-            small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+            small_train_data.copy_dataset(new_train_data[_i], indices[:train_valid_pivot_point], new_idx=True)
+            # small_train_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[:train_valid_pivot_point]]
+            # small_train_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[:train_valid_pivot_point]])
+            # small_train_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[:train_valid_pivot_point]])
+            # small_train_data.label = copy.deepcopy(new_train_data[_i].label[indices[:train_valid_pivot_point]])
+            # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+            # small_train_data.is_syn = copy.deepcopy(new_train_data[_i].is_syn[indices[:train_valid_pivot_point]])
             small_valid_data = TokenizedDataset(
                 file_path=(''),
             )
-            small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
-            small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
-            small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
-            small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
-            small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[_i]-train_valid_pivot_point)]).long()
+            small_valid_data.copy_dataset(new_train_data[_i], indices[train_valid_pivot_point:], new_idx=True)
+            # small_valid_data.text = [copy.deepcopy(new_train_data[_i].text[ix]) for ix in indices[train_valid_pivot_point:]]
+            # small_valid_data.ids = copy.deepcopy(new_train_data[_i].ids[indices[train_valid_pivot_point:]])
+            # small_valid_data.attention_mask = copy.deepcopy(new_train_data[_i].attention_mask[indices[train_valid_pivot_point:]])
+            # small_valid_data.label = copy.deepcopy(new_train_data[_i].label[indices[train_valid_pivot_point:]])
+            # small_valid_data.idx = torch.tensor([_i for _i in range(args.sample_each_llm[_i]-train_valid_pivot_point)]).long()
+            # small_valid_data.is_syn = copy.deepcopy(new_train_data[_i].is_syn[indices[train_valid_pivot_point:]])
             new_small_train_data.append(small_train_data)
             new_small_valid_data.append(small_valid_data)
         # ############## separate as train and test ##############
@@ -1686,7 +1364,7 @@ def train_to_converge_with_weight_adjust_and_label_flip_fused(args, model, train
 # ################################## vote for all ##################################
 
 
-def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, quality_separate_sample_indexs, soft_labels, epoch_adjust, epoch_converge, inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter):
+def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, quality_separate_sample_indexs, soft_labels, epoch_adjust, epoch_converge, inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter, final_test=True):
     theta_for_function_call = [copy.deepcopy(_theta) for _theta in theta]
     for _theta in theta:
         _theta = _theta.detach()
@@ -1704,96 +1382,87 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     high_quality_kd_model_copy = copy.deepcopy(model)
     low_quality_model_copy = copy.deepcopy(model)
     print(f'here2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-    # if args.optim =='Adam':
-    #     high_quality_optimizer = Adam(high_quality_model_copy.parameters(), lr=args.inner_lr)
-    #     high_quality_kd_optimizer = Adam(high_quality_model_copy.parameters(), lr=args.inner_lr)
-    #     low_quality_optimizer = Adam(low_quality_model_copy.parameters(), lr=args.inner_lr)
-    # elif args.optim =='SGD':
-    #     high_quality_optimizer = SGD(high_quality_model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
-    #     high_quality_kd_optimizer = SGD(high_quality_model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
-    #     low_quality_optimizer = SGD(low_quality_model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
-    # losses = AverageMeter("Loss", ":.3f")
-    # high_quality_model_weights_cache = []
-    # high_quality_kd_model_weights_cache = []
-    # low_quality_model_weights_cache = []
-    # high_quality_opt_checkpoints_cache = []
-    # high_quality_kd_opt_checkpoints_cache = []
-    # low_quality_opt_checkpoints_cache = []
+
     
     # (1) train only on good sample with one-hot label
-    if 'Reweight' in args.fuse_dataset_weight:
-        print_info = ["weight-adjust-for-selection-kd-fused-(good-one-hot)", "fused_adjust_iter", "good_train_loss_selction_ft", "good_train_acc_selction_ft", "good_test_acc_selction_ft", "good_test_loss_selction_ft"]
-        high_quality_one_hot_theta, high_quality_one_hot_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=None)
-    else:
-        diverged = False
-        selected_train_dataset = []
-        _id = 0
-        if args.small_model_name.upper() == 'LSTM':
-            for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
-                selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
-                selected_train_dataset[_id].idx = _id
-                _id += 1
-            selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-            theta = torch.stack(_saved_theta)[high_quality_sample_rows, high_quality_sample_columns]
-            train_iter, = BucketIterator.splits(
-                (selected_train_data,),
-                batch_sizes=(args.train_batch_size,),
-                device=device,
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                shuffle=args.shuffle_train,
-            )
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
-            selected_train_data = TokenizedDataset(
-                file_path=(''),
-            )
-            selected_train_data.text = [] # clear all the samples
-            selected_train_data.ids = [] # clear all the samples
-            selected_train_data.attention_mask = [] # clear all the samples
-            selected_train_data.label = [] # clear all the samples
-            selected_train_data.idx = [] # clear all the samples
-            for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
-                selected_train_data.text += [train_data[row].text[column]]
-                selected_train_data.ids += [train_data[row].ids[column]]
-                selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-                selected_train_data.label += [train_data[row].label[column]]
-                selected_train_data.idx += [_id]
-                _id += 1
-            theta = torch.tensor([_saved_theta[row][col] for row,col in zip(high_quality_sample_rows, high_quality_sample_columns)]).to(args.device)
-            train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-        # init_theta = copy.deepcopy(theta)
-        for epoch in range(epoch_adjust//3):
-            logging.debug(f"epoch #{epoch} for good-sample-one-hot")
-            current_outer_iter_trained_model = []
-            theta_mapped = copy.deepcopy(theta)
-            # print(type(theta_mapped),theta_mapped)
-            # best_theta = copy.deepcopy(theta)
+    if final_test:
+        if 'Reweight' in args.fuse_dataset_weight:
+            print_info = ["weight-adjust-for-selection-kd-fused-(good-one-hot)", "fused_adjust_iter", "good_train_loss_selction_ft", "good_train_acc_selction_ft", "good_test_acc_selction_ft", "good_test_loss_selction_ft"]
+            high_quality_one_hot_theta, high_quality_one_hot_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=None)
+        else:
+            diverged = False
+            selected_train_dataset = []
+            _id = 0
+            if args.small_model_name.upper() == 'LSTM':
+                for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
+                    selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
+                    selected_train_dataset[_id].idx = _id
+                    _id += 1
+                selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
+                theta = torch.stack(_saved_theta)[high_quality_sample_rows, high_quality_sample_columns]
+                train_iter, = BucketIterator.splits(
+                    (selected_train_data,),
+                    batch_sizes=(args.train_batch_size,),
+                    device=device,
+                    sort_key=lambda x: len(x.text),
+                    sort_within_batch=True,
+                    repeat=False,
+                    shuffle=args.shuffle_train,
+                )
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                selected_train_data = TokenizedDataset(
+                    file_path=(''),
+                )
+                selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
+                # selected_train_data.text = [] # clear all the samples
+                # selected_train_data.ids = [] # clear all the samples
+                # selected_train_data.attention_mask = [] # clear all the samples
+                # selected_train_data.label = [] # clear all the samples
+                # selected_train_data.idx = [] # clear all the samples
+                # selected_train_data.is_syn = [] # clear all the samples
+                # for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
+                #     selected_train_data.text += [train_data[row].text[column]]
+                #     selected_train_data.ids += [train_data[row].ids[column]]
+                #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+                #     selected_train_data.label += [train_data[row].label[column]]
+                #     selected_train_data.idx += [_id]
+                #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+                #     _id += 1
+                theta = torch.tensor([_saved_theta[row][col] for row,col in zip(high_quality_sample_rows, high_quality_sample_columns)]).to(args.device)
+                train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
+            # init_theta = copy.deepcopy(theta)
+            for epoch in range(epoch_adjust//3):
+                logging.debug(f"epoch #{epoch} for good-sample-one-hot")
+                current_outer_iter_trained_model = []
+                theta_mapped = copy.deepcopy(theta)
+                # print(type(theta_mapped),theta_mapped)
+                # best_theta = copy.deepcopy(theta)
+                    
+                ##############  ##############
+                diverged = True # diverged==True means loss==nan, which means the training failed
+                while diverged:
+                    model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
+                    print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                    if epoch_adjust % args.check_ft_every==0:
+                        model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader)
+                        # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+
+                current_outer_iter_trained_model.append(model_copy_converged)
                 
-            ##############  ##############
-            diverged = True # diverged==True means loss==nan, which means the training failed
-            while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
-                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                if epoch_adjust % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader)
-                    # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+                if epoch_adjust % args.check_ft_every == 0:
+                    test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+                    print(f"weight-adjust-for-selection-kd-fused-(good-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
+                    logging.info(f"weight-adjust-for-selection-kd-fused-(good-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
+                    if args.wandb:
+                        wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
-            current_outer_iter_trained_model.append(model_copy_converged)
-            
-            if epoch_adjust % args.check_ft_every == 0:
-                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-                print(f"weight-adjust-for-selection-kd-fused-(good-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
-                logging.info(f"weight-adjust-for-selection-kd-fused-(good-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
-                if args.wandb:
-                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+                theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
+                theta = copy.deepcopy(theta_mapped[0])
+            high_quality_one_hot_theta = copy.deepcopy(theta)
+            high_quality_one_hot_model_copy = copy.deepcopy(model_copy_converged_ft)
+            high_quality_one_hot_theta = high_quality_one_hot_theta.to("cpu")
+            high_quality_one_hot_model_copy = high_quality_one_hot_model_copy.to("cpu")
 
-            theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
-            theta = copy.deepcopy(theta_mapped[0])
-        high_quality_one_hot_theta = copy.deepcopy(theta)
-        high_quality_one_hot_model_copy = copy.deepcopy(model_copy_converged_ft)
-
-    # (2) train only on good sample with kd label
     # ############### prepare total_data for later use ###############
     accumulate_sampels = [0]
     if args.small_model_name.upper() == 'LSTM':
@@ -1805,63 +1474,71 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
             accumulate_sampels.append(accumulate_sampels[-1]+len(_dataset_examples)) 
         for _i in range(len(total_data)):
             total_data[_i].idx = _i
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         _id = 0
         total_data = TokenizedDataset(
             file_path=(''),
         )
-        total_data.text = [] # clear all the samples
-        total_data.ids = [] # clear all the samples
-        total_data.attention_mask = [] # clear all the samples
-        total_data.label = [] # clear all the samples
-        total_data.idx = [] # clear all the samples
-        for row in range(args.len_LLM):
+        total_data.clear_and_copy_dataset(train_data, [], args.len_LLM+1, new_idx=True)
+        # selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
+        # total_data.text = [] # clear all the samples
+        # total_data.ids = [] # clear all the samples
+        # total_data.attention_mask = [] # clear all the samples
+        # total_data.label = [] # clear all the samples
+        # total_data.idx = [] # clear all the samples
+        # total_data.is_syn = [] # clear all the samples
+        for row in range(args.len_LLM+1):
             accumulate_sampels.append(accumulate_sampels[-1]+len(train_data[row].idx)) 
-            for column in range(len(train_data[row].idx)):
-                total_data.text += [train_data[row].text[column]]
-                total_data.ids += [train_data[row].ids[column]]
-                total_data.attention_mask += [train_data[row].attention_mask[column]]
-                total_data.label += [train_data[row].label[column]]
-                total_data.idx += [_id]
-                _id += 1
+            # for column in range(len(train_data[row].idx)):
+            #     total_data.text += [train_data[row].text[column]]
+            #     total_data.ids += [train_data[row].ids[column]]
+            #     total_data.attention_mask += [train_data[row].attention_mask[column]]
+            #     total_data.label += [train_data[row].label[column]]
+            #     total_data.idx += [_id]
+            #     total_data.is_syn += [train_data[row].is_syn[column]]
+            #     _id += 1
     accumulate_sampels = torch.tensor(accumulate_sampels, dtype=torch.long).to(args.device)
+    # # (2) train only on good sample with kd label
     # ############### prepare total_data for later use ###############    
-    if 'Reweight' in args.fuse_dataset_weight:
-        print_info = ["weight-adjust-for-selection-kd-fused-(good-kd)", "fused_adjust_iter", "good_kd_train_loss_selction_ft", "good_kd_train_acc_selction_ft", "good_kd_test_acc_selction_ft", "good_kd_test_loss_selction_ft"]
-        high_quality_kd_theta, high_quality_kd_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=soft_label_total)
-    else:
-        _high_quality_sample_rows = torch.tensor(high_quality_sample_rows, dtype=torch.long).to(args.device)
-        _high_quality_sample_columns = torch.tensor(high_quality_sample_columns, dtype=torch.long).to(args.device)
-        soft_label = soft_label_total[accumulate_sampels[_high_quality_sample_rows]+_high_quality_sample_columns]
-        for epoch in range(epoch_adjust//3):
-            logging.debug(f"epoch #{epoch} for good-sample-kd-label")
-            current_outer_iter_trained_model = []
-            theta_mapped = copy.deepcopy(theta)
-            # print(type(theta_mapped),theta_mapped)
-            # best_theta = copy.deepcopy(theta)
+    # if final_test:
+    #     if 'Reweight' in args.fuse_dataset_weight:
+    #         print_info = ["weight-adjust-for-selection-kd-fused-(good-kd)", "fused_adjust_iter", "good_kd_train_loss_selction_ft", "good_kd_train_acc_selction_ft", "good_kd_test_acc_selction_ft", "good_kd_test_loss_selction_ft"]
+    #         high_quality_kd_theta, high_quality_kd_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=soft_label_total)
+    #     else:
+    #         _high_quality_sample_rows = torch.tensor(high_quality_sample_rows, dtype=torch.long).to(args.device)
+    #         _high_quality_sample_columns = torch.tensor(high_quality_sample_columns, dtype=torch.long).to(args.device)
+    #         soft_label = soft_label_total[accumulate_sampels[_high_quality_sample_rows]+_high_quality_sample_columns]
+    #         for epoch in range(epoch_adjust//3):
+    #             logging.debug(f"epoch #{epoch} for good-sample-kd-label")
+    #             current_outer_iter_trained_model = []
+    #             theta_mapped = copy.deepcopy(theta)
+    #             # print(type(theta_mapped),theta_mapped)
+    #             # best_theta = copy.deepcopy(theta)
+                    
+    #             ##############  ##############
+    #             diverged = True # diverged==True means loss==nan, which means the training failed
+    #             while diverged:
+    #                 model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader, soft_label=soft_label)
+    #                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+    #                 if epoch_adjust % args.check_ft_every==0:
+    #                     model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader, soft_label=soft_label)
+    #                     # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+
+    #             current_outer_iter_trained_model.append(model_copy_converged)
                 
-            ##############  ##############
-            diverged = True # diverged==True means loss==nan, which means the training failed
-            while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader, soft_label=soft_label)
-                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                if epoch_adjust % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader, soft_label=soft_label)
-                    # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+    #             if epoch_adjust % args.check_ft_every == 0:
+    #                 test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test", use_soft_label=(soft_label!=None))
+    #                 print(f"weight-adjust-for-selection-kd-fused-(good-kd): #fused_adjust_iter={epoch}, beta({args.BETA}), good_kd_train_loss_selction_ft={loss_ft}, good_kd_train_acc_selction_ft={train_acc_ft}, good_kd_test_acc_selction_ft={test_acc1_ft}, good_kd_test_loss_selction_ft={test_loss_ft}")
+    #                 logging.info(f"weight-adjust-for-selection-kd-fused-(good-kd): , #fused_adjust_iter={epoch}, beta({args.BETA}), good_kd_train_loss_selction_ft={loss_ft}, good_kd_train_acc_selction_ft={train_acc_ft}, good_kd_test_acc_selction_ft={test_acc1_ft}, good_kd_test_loss_selction_ft={test_loss_ft}")
+    #                 if args.wandb:
+    #                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
-            current_outer_iter_trained_model.append(model_copy_converged)
-            
-            if epoch_adjust % args.check_ft_every == 0:
-                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test", use_soft_label=(soft_label!=None))
-                print(f"weight-adjust-for-selection-kd-fused-(good-kd): #fused_adjust_iter={epoch}, beta({args.BETA}), good_kd_train_loss_selction_ft={loss_ft}, good_kd_train_acc_selction_ft={train_acc_ft}, good_kd_test_acc_selction_ft={test_acc1_ft}, good_kd_test_loss_selction_ft={test_loss_ft}")
-                logging.info(f"weight-adjust-for-selection-kd-fused-(good-kd): , #fused_adjust_iter={epoch}, beta({args.BETA}), good_kd_train_loss_selction_ft={loss_ft}, good_kd_train_acc_selction_ft={train_acc_ft}, good_kd_test_acc_selction_ft={test_acc1_ft}, good_kd_test_loss_selction_ft={test_loss_ft}")
-                if args.wandb:
-                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-
-            theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True, use_soft_label=(soft_label!=None))
-            theta = copy.deepcopy(theta_mapped[0])
-        high_quality_kd_theta = copy.deepcopy(theta)
-        high_quality_kd_model_copy = copy.deepcopy(model_copy_converged_ft)
+    #             theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True, use_soft_label=(soft_label!=None))
+    #             theta = copy.deepcopy(theta_mapped[0])
+    #         high_quality_kd_theta = copy.deepcopy(theta)
+    #         high_quality_kd_model_copy = copy.deepcopy(model_copy_converged_ft)
+    #         high_quality_kd_theta = high_quality_kd_theta.to("cpu")
+    #         high_quality_kd_model_copy = high_quality_kd_model_copy.to("cpu")
 
     # # (3) train only on bad sample with one-hot label
     # diverged = False
@@ -1883,7 +1560,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     #         repeat=False,
     #         shuffle=args.shuffle_train,
     #     )
-    # elif 'bert' in args.small_model_name.lower():
+    # elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
     #     selected_train_data = TokenizedDataset(
     #         file_path=(''),
     #     )
@@ -1946,117 +1623,123 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     # #     if __i == 16:
     # #         break
 
-    # (4) train on all the samples with "not seen" kd label
-    if 'Reweight' in args.fuse_dataset_weight:
-        print_info = ["weight-adjust-for-selection-kd-fused-(all-kd)", "fused_adjust_iter", "total_ns_kd_train_loss_selction_ft", "total_ns_kd_train_acc_selction_ft", "total_ns_kd_test_acc_selction_ft", "total_ns_kd_test_loss_selction_ft"]
-        total_kd_ns_theta, total_kd_ns_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=soft_label_not_seen)
-    else:
-        diverged = False
-        if args.small_model_name.upper() == 'LSTM':
-            selected_train_dataset = total_data
-            selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-            theta = torch.stack(_saved_theta).view(-1)
-            train_iter, = BucketIterator.splits(
-                (selected_train_dataset,),
-                batch_sizes=(args.train_batch_size,),
-                device=device,
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                shuffle=args.shuffle_train,
-            )
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
-            selected_train_data = total_data
-            theta = torch.stack(_saved_theta).view(-1)
-            train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-            print(f"{len(selected_train_data)=}, {theta.shape=}")
-        # init_theta = copy.deepcopy(theta)
-        for epoch in range(epoch_adjust//3):
-            logging.debug(f"epoch #{epoch} for all-sample-kd (ns)")
-            current_outer_iter_trained_model = []
-            theta_mapped = copy.deepcopy(theta)
-            # print(type(theta_mapped),theta_mapped)
-            # best_theta = copy.deepcopy(theta)
+    # # (4) train on all the samples with "not seen" kd label
+    # if final_test:
+    #     if 'Reweight' in args.fuse_dataset_weight:
+    #         print_info = ["weight-adjust-for-selection-kd-fused-(all-kd)", "fused_adjust_iter", "total_ns_kd_train_loss_selction_ft", "total_ns_kd_train_acc_selction_ft", "total_ns_kd_test_acc_selction_ft", "total_ns_kd_test_loss_selction_ft"]
+    #         total_kd_ns_theta, total_kd_ns_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=soft_label_not_seen)
+    #     else:
+    #         diverged = False
+    #         if args.small_model_name.upper() == 'LSTM':
+    #             selected_train_dataset = total_data
+    #             selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
+    #             theta = torch.stack(_saved_theta).view(-1)
+    #             train_iter, = BucketIterator.splits(
+    #                 (selected_train_dataset,),
+    #                 batch_sizes=(args.train_batch_size,),
+    #                 device=device,
+    #                 sort_key=lambda x: len(x.text),
+    #                 sort_within_batch=True,
+    #                 repeat=False,
+    #                 shuffle=args.shuffle_train,
+    #             )
+    #         elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+    #             selected_train_data = total_data
+    #             theta = torch.stack(_saved_theta).view(-1)
+    #             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
+    #             print(f"{len(selected_train_data)=}, {theta.shape=}")
+    #         # init_theta = copy.deepcopy(theta)
+    #         for epoch in range(epoch_adjust//3):
+    #             logging.debug(f"epoch #{epoch} for all-sample-kd (ns)")
+    #             current_outer_iter_trained_model = []
+    #             theta_mapped = copy.deepcopy(theta)
+    #             # print(type(theta_mapped),theta_mapped)
+    #             # best_theta = copy.deepcopy(theta)
+                    
+    #             # print(f"{theta_mapped.shape=}, {len(selected_train_data)=}, {soft_label_not_seen.shape=}")
+    #             ##############  ##############
+    #             diverged = True # diverged==True means loss==nan, which means the training failed
+    #             while diverged:
+    #                 model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader, soft_label=soft_label_not_seen)
+    #                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+    #                 if epoch_adjust % args.check_ft_every==0:
+    #                     model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader, soft_label=soft_label_not_seen)
+    #                     # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+
+    #             current_outer_iter_trained_model.append(model_copy_converged)
                 
-            # print(f"{theta_mapped.shape=}, {len(selected_train_data)=}, {soft_label_not_seen.shape=}")
-            ##############  ##############
-            diverged = True # diverged==True means loss==nan, which means the training failed
-            while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader, soft_label=soft_label_not_seen)
-                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                if epoch_adjust % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader, soft_label=soft_label_not_seen)
-                    # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+    #             if epoch_adjust % args.check_ft_every == 0:
+    #                 test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test", use_soft_label=(soft_label_not_seen!=None))
+    #                 print(f"weight-adjust-for-selection-kd-fused-(all-kd): #fused_adjust_iter={epoch}, beta({args.BETA}), total_ns_kd_train_loss_selction_ft={loss_ft}, total_ns_kd_train_acc_selction_ft={train_acc_ft}, total_ns_kd_test_acc_selction_ft={test_acc1_ft}, total_ns_kd_test_loss_selction_ft={test_loss_ft}")
+    #                 logging.info(f"weight-adjust-for-selection-kd-fused-(all-kd): , #fused_adjust_iter={epoch}, beta({args.BETA}), total_ns_kd_train_loss_selction_ft={loss_ft}, total_ns_kd_train_acc_selction_ft={train_acc_ft}, total_ns_kd_test_acc_selction_ft={test_acc1_ft}, total_ns_kd_test_loss_selction_ft={test_loss_ft}")
+    #                 if args.wandb:
+    #                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
-            current_outer_iter_trained_model.append(model_copy_converged)
-            
-            if epoch_adjust % args.check_ft_every == 0:
-                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test", use_soft_label=(soft_label_not_seen!=None))
-                print(f"weight-adjust-for-selection-kd-fused-(all-kd): #fused_adjust_iter={epoch}, beta({args.BETA}), total_ns_kd_train_loss_selction_ft={loss_ft}, total_ns_kd_train_acc_selction_ft={train_acc_ft}, total_ns_kd_test_acc_selction_ft={test_acc1_ft}, total_ns_kd_test_loss_selction_ft={test_loss_ft}")
-                logging.info(f"weight-adjust-for-selection-kd-fused-(all-kd): , #fused_adjust_iter={epoch}, beta({args.BETA}), total_ns_kd_train_loss_selction_ft={loss_ft}, total_ns_kd_train_acc_selction_ft={train_acc_ft}, total_ns_kd_test_acc_selction_ft={test_acc1_ft}, total_ns_kd_test_loss_selction_ft={test_loss_ft}")
-                if args.wandb:
-                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+    #             theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True, use_soft_label=(soft_label_not_seen!=None))
+    #             theta = copy.deepcopy(theta_mapped[0])
+    #         total_kd_ns_theta = copy.deepcopy(theta)
+    #         total_kd_ns_model_copy = copy.deepcopy(model_copy_converged_ft)
+    #         total_kd_ns_theta = total_kd_ns_theta.to("cpu")
+    #         total_kd_ns_model_copy = total_kd_ns_model_copy.to("cpu")
 
-            theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True, use_soft_label=(soft_label_not_seen!=None))
-            theta = copy.deepcopy(theta_mapped[0])
-        total_kd_ns_theta = copy.deepcopy(theta)
-        total_kd_ns_model_copy = copy.deepcopy(model_copy_converged_ft)
-
-    # (5) train on all the samples with "seen all" kd label
-    if 'Reweight' in args.fuse_dataset_weight:
-        print_info = ["weight-adjust-for-selection-kd-fused-(all-kd-s)", "fused_adjust_iter", "total_s_kd_train_loss_selction_ft", "total_s_kd_train_acc_selction_ft", "total_s_kd_test_acc_selction_ft", "total_s_kd_test_loss_selction_ft"]
-        total_kd_s_theta, total_kd_s_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=soft_label_total)
-    else:
-        diverged = False
-        if args.small_model_name.upper() == 'LSTM':
-            selected_train_dataset = total_data
-            selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-            theta = torch.stack(_saved_theta).view(-1)
-            train_iter, = BucketIterator.splits(
-                (selected_train_dataset,),
-                batch_sizes=(args.train_batch_size,),
-                device=device,
-                sort_key=lambda x: len(x.text),
-                sort_within_batch=True,
-                repeat=False,
-                shuffle=args.shuffle_train,
-            )
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
-            selected_train_data = total_data
-            theta = torch.stack(_saved_theta).view(-1)
-            train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-            print(f"{len(selected_train_data)=}, {theta.shape=}")
-        # init_theta = copy.deepcopy(theta)
-        for epoch in range(epoch_adjust//3):
-            logging.debug(f"epoch #{epoch} for all-sample-kd (s)")
-            current_outer_iter_trained_model = []
-            theta_mapped = copy.deepcopy(theta)
-            # print(type(theta_mapped),theta_mapped)
-            # best_theta = copy.deepcopy(theta)
+    # # (5) train on all the samples with "seen all" kd label
+    # if final_test:
+    #     if 'Reweight' in args.fuse_dataset_weight:
+    #         print_info = ["weight-adjust-for-selection-kd-fused-(all-kd-s)", "fused_adjust_iter", "total_s_kd_train_loss_selction_ft", "total_s_kd_train_acc_selction_ft", "total_s_kd_test_acc_selction_ft", "total_s_kd_test_loss_selction_ft"]
+    #         total_kd_s_theta, total_kd_s_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=soft_label_total)
+    #     else:
+    #         diverged = False
+    #         if args.small_model_name.upper() == 'LSTM':
+    #             selected_train_dataset = total_data
+    #             selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
+    #             theta = torch.stack(_saved_theta).view(-1)
+    #             train_iter, = BucketIterator.splits(
+    #                 (selected_train_dataset,),
+    #                 batch_sizes=(args.train_batch_size,),
+    #                 device=device,
+    #                 sort_key=lambda x: len(x.text),
+    #                 sort_within_batch=True,
+    #                 repeat=False,
+    #                 shuffle=args.shuffle_train,
+    #             )
+    #         elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+    #             selected_train_data = total_data
+    #             theta = torch.stack(_saved_theta).view(-1)
+    #             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
+    #             print(f"{len(selected_train_data)=}, {theta.shape=}")
+    #         # init_theta = copy.deepcopy(theta)
+    #         for epoch in range(epoch_adjust//3):
+    #             logging.debug(f"epoch #{epoch} for all-sample-kd (s)")
+    #             current_outer_iter_trained_model = []
+    #             theta_mapped = copy.deepcopy(theta)
+    #             # print(type(theta_mapped),theta_mapped)
+    #             # best_theta = copy.deepcopy(theta)
                 
-            # print(f"{theta_mapped.shape=}, {len(selected_train_data)=}, {soft_label_not_seen.shape=}")
-            ##############  ##############
-            diverged = True # diverged==True means loss==nan, which means the training failed
-            while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader, soft_label=soft_label_total)
-                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                if epoch_adjust % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader, soft_label=soft_label_total)
-                    # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+    #             # print(f"{theta_mapped.shape=}, {len(selected_train_data)=}, {soft_label_not_seen.shape=}")
+    #             ##############  ##############
+    #             diverged = True # diverged==True means loss==nan, which means the training failed
+    #             while diverged:
+    #                 model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader, soft_label=soft_label_total)
+    #                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+    #                 if epoch_adjust % args.check_ft_every==0:
+    #                     model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader, soft_label=soft_label_total)
+    #                     # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
 
-            current_outer_iter_trained_model.append(model_copy_converged)
-            
-            if epoch_adjust % args.check_ft_every == 0:
-                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test", use_soft_label=(soft_label_total!=None))
-                print(f"weight-adjust-for-selection-kd-fused-(all-kd-s): #fused_adjust_iter={epoch}, beta({args.BETA}), total_s_kd_train_loss_selction_ft={loss_ft}, total_s_kd_train_acc_selction_ft={train_acc_ft}, total_s_kd_test_acc_selction_ft={test_acc1_ft}, total_s_kd_test_loss_selction_ft={test_loss_ft}")
-                logging.info(f"weight-adjust-for-selection-kd-fused-(all-kd-s): , #fused_adjust_iter={epoch}, beta({args.BETA}), total_s_kd_train_loss_selction_ft={loss_ft}, total_s_kd_train_acc_selction_ft={train_acc_ft}, total_s_kd_test_acc_selction_ft={test_acc1_ft}, total_s_kd_test_loss_selction_ft={test_loss_ft}")
-                if args.wandb:
-                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+    #             current_outer_iter_trained_model.append(model_copy_converged)
+                
+    #             if epoch_adjust % args.check_ft_every == 0:
+    #                 test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test", use_soft_label=(soft_label_total!=None))
+    #                 print(f"weight-adjust-for-selection-kd-fused-(all-kd-s): #fused_adjust_iter={epoch}, beta({args.BETA}), total_s_kd_train_loss_selction_ft={loss_ft}, total_s_kd_train_acc_selction_ft={train_acc_ft}, total_s_kd_test_acc_selction_ft={test_acc1_ft}, total_s_kd_test_loss_selction_ft={test_loss_ft}")
+    #                 logging.info(f"weight-adjust-for-selection-kd-fused-(all-kd-s): , #fused_adjust_iter={epoch}, beta({args.BETA}), total_s_kd_train_loss_selction_ft={loss_ft}, total_s_kd_train_acc_selction_ft={train_acc_ft}, total_s_kd_test_acc_selction_ft={test_acc1_ft}, total_s_kd_test_loss_selction_ft={test_loss_ft}")
+    #                 if args.wandb:
+    #                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
-            theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True, use_soft_label=(soft_label_total!=None))
-            theta = copy.deepcopy(theta_mapped[0])
-        total_kd_s_theta = copy.deepcopy(theta)
-        total_kd_s_model_copy = copy.deepcopy(model_copy_converged_ft)
+    #             theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True, use_soft_label=(soft_label_total!=None))
+    #             theta = copy.deepcopy(theta_mapped[0])
+    #         total_kd_s_theta = copy.deepcopy(theta)
+    #         total_kd_s_model_copy = copy.deepcopy(model_copy_converged_ft)
+    #         total_kd_s_theta = total_kd_s_theta.to("cpu")
+    #         total_kd_s_model_copy = total_kd_s_model_copy.to("cpu")
 
     # (6) train on all the samples with 1-hot label
     if 'Reweight' in args.fuse_dataset_weight:
@@ -2077,9 +1760,9 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
                 repeat=False,
                 shuffle=args.shuffle_train,
             )
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             selected_train_data = total_data
-            theta = torch.stack(_saved_theta).view(-1)
+            theta = torch.cat(_saved_theta, dim=-1).view(-1)
             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
             print(f"{len(selected_train_data)=}, {theta.shape=}")
         # init_theta = copy.deepcopy(theta)
@@ -2113,475 +1796,94 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
             theta = copy.deepcopy(theta_mapped[0])
         total_one_hot_theta = copy.deepcopy(theta)
         total_one_hot_model_copy = copy.deepcopy(model_copy_converged_ft)
+        # total_one_hot_theta = total_one_hot_theta.to("cpu")
+        # total_one_hot_model_copy = total_one_hot_model_copy.to("cpu")
 
-    # (7) train respectively to get K small models for voting
-    trained_more_step_models = []
-    separate_theta = [copy.deepcopy(_theta) for _theta in _saved_theta]
-    for epoch in range(epoch_adjust//3):
-        models_predicts = []
-        models_predicts_votes = []
-        for _k in range(args.len_LLM):
-            if args.small_model_name.upper() == 'LSTM':
-                selected_train_dataset = total_data
-                selected_train_data = data.Dataset(train_data[_k], train_data[0].fields)
-                # train_iter, = BucketIterator.splits(
-                #     (selected_train_dataset,),
-                #     batch_sizes=(args.train_batch_size,),
-                #     device=device,
-                #     sort_key=lambda x: len(x.text),
-                #     sort_within_batch=True,
-                #     repeat=False,
-                #     shuffle=args.shuffle_train,
-                # )
-            elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
-                selected_train_data = train_data[_k]
-                # train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-                print(f"{len(selected_train_data)=}, {theta.shape=}")
-            current_outer_iter_trained_model = []
-            theta_mapped = separate_theta[_k]
-            # print(type(theta_mapped),theta_mapped)
-            # best_theta = copy.deepcopy(theta)
+    # # (7) train respectively to get K small models for voting
+    # if final_test:
+    #     trained_more_step_models = []
+    #     separate_theta = [copy.deepcopy(_theta) for _theta in _saved_theta]
+    #     for epoch in range(epoch_adjust//3):
+    #         models_predicts = []
+    #         models_predicts_votes = []
+    #         for _k in range(args.len_LLM):
+    #             if args.small_model_name.upper() == 'LSTM':
+    #                 selected_train_dataset = total_data
+    #                 selected_train_data = data.Dataset(train_data[_k], train_data[0].fields)
+    #                 # train_iter, = BucketIterator.splits(
+    #                 #     (selected_train_dataset,),
+    #                 #     batch_sizes=(args.train_batch_size,),
+    #                 #     device=device,
+    #                 #     sort_key=lambda x: len(x.text),
+    #                 #     sort_within_batch=True,
+    #                 #     repeat=False,
+    #                 #     shuffle=args.shuffle_train,
+    #                 # )
+    #             elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+    #                 selected_train_data = train_data[_k]
+    #                 # train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
+    #                 print(f"{len(selected_train_data)=}, {theta.shape=}")
+    #             current_outer_iter_trained_model = []
+    #             theta_mapped = separate_theta[_k]
+    #             # print(type(theta_mapped),theta_mapped)
+    #             # best_theta = copy.deepcopy(theta)
+                    
+    #             if 'Reweight' in args.fuse_dataset_weight:
+    #                 print_info = [f"separate-train-for-ensemebel, #model={_k}", "fused_adjust_iter", "train_loss", "train_acc", "test_acc", "test_loss"]
+    #                 theta_mapped, model_copy_converged_ft, loss_ft, train_acc_ft = solve_reweight_v2(args, model_copy, [selected_train_data], [theta_mapped.detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
+    #             else:
+    #                 diverged = True # diverged==True means loss==nan, which means the training failed
+    #                 while diverged:
+    #                     model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
+    #                     print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+    #                     if epoch_adjust % args.check_ft_every==0:
+    #                         model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader)
+    #                         # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+    #                 current_outer_iter_trained_model.append(model_copy_converged)
+
+    #             trained_more_step_models.append(model_copy_converged_ft)
                 
-            if 'Reweight' in args.fuse_dataset_weight:
-                print_info = [f"separate-train-for-ensemebel, #model={_k}", "fused_adjust_iter", "train_loss", "train_acc", "test_acc", "test_loss"]
-                theta_mapped, model_copy_converged_ft, loss_ft, train_acc_ft = solve_reweight_v2(args, model_copy, [selected_train_data], [theta_mapped.detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
-            else:
-                diverged = True # diverged==True means loss==nan, which means the training failed
-                while diverged:
-                    model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
-                    print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                    if epoch_adjust % args.check_ft_every==0:
-                        model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader)
-                        # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
-                current_outer_iter_trained_model.append(model_copy_converged)
-
-            trained_more_step_models.append(model_copy_converged_ft)
+    #             if epoch_adjust % args.check_ft_every == 0:
+    #                 test_acc1_ft, test_loss_ft, all_predicts, all_predicts_votes, all_labels = eval_get_predicts(args, model_copy_converged_ft, test_loader, name="test")
+    #                 print(f"weight-adjust-for-separate-model-(separate-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), #model={_k}, separate_train_loss_selction_ft={loss_ft}, separate_train_acc_selction_ft={train_acc_ft}, separate_test_acc_selction_ft={test_acc1_ft}, separate_test_loss_selction_ft={test_loss_ft}")
+    #                 logging.info(f"weight-adjust-for-separate-model-(separateod-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), #model={_k}, separate_train_loss_selction_ft={loss_ft}, separate_train_acc_selction_ft={train_acc_ft}, separate_test_acc_selction_ft={test_acc1_ft}, separate_test_loss_selction_ft={test_loss_ft}")
+    #                 if args.wandb:
+    #                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+    #             if not 'Reweight' in args.fuse_dataset_weight and 'Adjust' in args.fuse_dataset_weight:
+    #                 theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
+    #                 separate_theta[_k] = theta_mapped[0]
+    #             elif 'Reweight' in args.fuse_dataset_weight:
+    #                 separate_theta[_k] = theta_mapped
+    #             models_predicts.append(all_predicts)
+    #             models_predicts_votes.append(all_predicts_votes)
+    #         models_predicts = torch.stack(models_predicts,dim=-1)
+    #         models_predicts_votes = torch.stack(models_predicts_votes,dim=1)
+    #         # print(models_predicts.shape, models_predicts_votes.shape)
+    #         # majority_predicts, count = torch.mode(models_predicts,dim=1)
+    #         majority_predicts = torch.argmax(torch.sum(models_predicts_votes,dim=1),dim=-1)
+    #         # print(majority_predicts.shape)
+    #         # assert 1 == 0
+    #         test_vote_acc = (majority_predicts == all_labels).sum().item() / majority_predicts.shape[0]
             
-            if epoch_adjust % args.check_ft_every == 0:
-                test_acc1_ft, test_loss_ft, all_predicts, all_predicts_votes, all_labels = eval_get_predicts(args, model_copy_converged_ft, test_loader, name="test")
-                print(f"weight-adjust-for-separate-model-(separate-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), #model={_k}, separate_train_loss_selction_ft={loss_ft}, separate_train_acc_selction_ft={train_acc_ft}, separate_test_acc_selction_ft={test_acc1_ft}, separate_test_loss_selction_ft={test_loss_ft}")
-                logging.info(f"weight-adjust-for-separate-model-(separateod-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), #model={_k}, separate_train_loss_selction_ft={loss_ft}, separate_train_acc_selction_ft={train_acc_ft}, separate_test_acc_selction_ft={test_acc1_ft}, separate_test_loss_selction_ft={test_loss_ft}")
-                if args.wandb:
-                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-            if not 'Reweight' in args.fuse_dataset_weight and 'Adjust' in args.fuse_dataset_weight:
-                theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
-                separate_theta[_k] = theta_mapped[0]
-            elif 'Reweight' in args.fuse_dataset_weight:
-                separate_theta[_k] = theta_mapped
-            models_predicts.append(all_predicts)
-            models_predicts_votes.append(all_predicts_votes)
-        models_predicts = torch.stack(models_predicts,dim=-1)
-        models_predicts_votes = torch.stack(models_predicts_votes,dim=1)
-        # print(models_predicts.shape, models_predicts_votes.shape)
-        # majority_predicts, count = torch.mode(models_predicts,dim=1)
-        majority_predicts = torch.argmax(torch.sum(models_predicts_votes,dim=1),dim=-1)
-        # print(majority_predicts.shape)
-        # assert 1 == 0
-        test_vote_acc = (majority_predicts == all_labels).sum().item() / majority_predicts.shape[0]
-        
-        if epoch_adjust % args.check_ft_every == 0:
-            print(f"weight-adjust-for-separate-model-vote-(separate-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), separate_vote_test_acc_selction_ft={test_vote_acc}")
-            logging.info(f"weight-adjust-for-separate-model-vote-(separateod-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), separate_vote_test_acc_selction_ft={test_vote_acc}")
-            if args.wandb:
-                wandb.log({"vote_test_acc": test_vote_acc})
+    #         if epoch_adjust % args.check_ft_every == 0:
+    #             print(f"weight-adjust-for-separate-model-vote-(separate-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), separate_vote_test_acc_selction_ft={test_vote_acc}")
+    #             logging.info(f"weight-adjust-for-separate-model-vote-(separateod-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), separate_vote_test_acc_selction_ft={test_vote_acc}")
+    #             if args.wandb:
+    #                 wandb.log({"vote_test_acc": test_vote_acc})
+    #         models_predicts = models_predicts.to("cpu")
+    #         models_predicts_votes = models_predicts_votes.to("cpu")
+    #         majority_predicts = majority_predicts.to("cpu")
 
-
-    # # (step2): train for aggregating good and bad quality data
-    # g_model_good = MLP1(args.num_classes, 32).to(args.device)
-    # g_model_bad = MLP1(args.num_classes, 32).to(args.device)
-    # optimizer = Adam(list(g_model_good.parameters())+list(g_model_bad.parameters()), lr=args.inner_lr)
-    # losses = AverageMeter("Loss", ":.4f")
-    # for epoch in range(epoch_converge//3):
-    #     g_model_good.train()
-    #     g_model_bad.train()
-    #     top1 = AverageMeter("OuterAcc@1", ":6.2f")
-
-    #     h_good = g_model_good(high_quality_logits_per_sample)
-    #     h_bad = g_model_bad(low_quality_logits_per_sample)
-    #     alpha = torch.sum(h_good*h_bad, dim=1)
-    #     logits = torch.softmax(soft_label_not_seen_bad+alpha.view(-1,1)*soft_label_single_predict_bad, dim=-1)
-    #     loss = -torch.mean(F.cross_entropy(logits, low_quality_y, reduction='none').flatten())
-    #     acc = 1-loss_utils.accuracy(logits, low_quality_y)
-    #     top1.update(acc, low_quality_y.size(0))
-    #     losses.update(loss.item(), low_quality_y.size(0))
-    #     loss.backward()
-    #     optimizer.step()
-    #     print(f"in alpha train, train {loss=}, train {acc=}")
-    
-    # g_model_good.eval()
-    # g_model_bad.eval()
-    # h_good = g_model_good(high_quality_logits_per_sample)
-    # h_bad = g_model_bad(low_quality_logits_per_sample)
-    # alpha = torch.sum(h_good*h_bad, dim=1)
-    # new_low_quality_logits = torch.softmax(soft_label_not_seen_bad+alpha.view(-1,1)*soft_label_single_predict_bad, dim=-1)
-    # new_soft_label = copy.deepcopy(soft_label_not_seen)
-    # for i, (r,c) in enumerate(zip(low_quality_sample_rows, low_quality_sample_columns)):
-    #     new_soft_label[accumulate_sampels[r]+c] = new_soft_label[i]
-    # for __i,(high_p, low_p, ns_p, s_p, low_y, new_p, _alpha) in enumerate(zip(high_quality_logits_per_sample, low_quality_logits_per_sample, soft_label_not_seen_bad, soft_label_single_predict_bad, low_quality_y, new_low_quality_logits, alpha)):
-    #     print(f"{high_p=}, {low_p=}, {ns_p=}, {s_p=}, {low_y=}, {new_p=}, {_alpha=}")
-    #     if __i == 16:
-    #         break
-    
-    # # (5) train on all the samples with learned kd label
-    # diverged = False
-    # for epoch in range(epoch_adjust//3):
-    #     logging.debug(f"epoch #{epoch} for all-sample-kd-alpha")
-    #     current_outer_iter_trained_model = []
-    #     theta_mapped = copy.deepcopy(theta)
-    #     # print(type(theta_mapped),theta_mapped)
-    #     # best_theta = copy.deepcopy(theta)
-            
-    #     # print(f"{theta_mapped.shape=}, {len(selected_train_data)=}, {soft_label_not_seen.shape=}")
-    #     ##############  ##############
-    #     diverged = True # diverged==True means loss==nan, which means the training failed
-    #     while diverged:
-    #         model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader, soft_label=new_soft_label)
-    #         print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-    #         if epoch_adjust % args.check_ft_every==0:
-    #             model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), 1, args.inner_obj, test_loader, soft_label=new_soft_label)
-    #             # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
-
-    #     current_outer_iter_trained_model.append(model_copy_converged)
-        
-    #     if epoch_adjust % args.check_ft_every == 0:
-    #         test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test", use_soft_label=(new_soft_label!=None))
-    #         print(f"weight-adjust-for-selection-kd-fused-(all-kd-alpha): #fused_adjust_iter={epoch}, beta({args.BETA}), total_ns_kd_train_loss_selction_ft={loss_ft}, total_ns_kd_train_acc_selction_ft={train_acc_ft}, total_ns_kd_test_acc_selction_ft={test_acc1_ft}, total_ns_kd_test_loss_selction_ft={test_loss_ft}")
-    #         logging.info(f"weight-adjust-for-selection-kd-fused-(all-kd-alpha): , #fused_adjust_iter={epoch}, beta({args.BETA}), total_ns_kd_train_loss_selction_ft={loss_ft}, total_ns_kd_train_acc_selction_ft={train_acc_ft}, total_ns_kd_test_acc_selction_ft={test_acc1_ft}, total_ns_kd_test_loss_selction_ft={test_loss_ft}")
-    #         if args.wandb:
-    #             wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-
-    #     theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True, use_soft_label=(new_soft_label!=None))
-    #     theta = copy.deepcopy(theta_mapped[0])
-    # total_kd_alpha_theta = copy.deepcopy(theta)
-    # total_kd_alpha_model_copy = copy.deepcopy(model_copy_converged_ft)
-    
+    torch.cuda.empty_cache()
     # return total_kd_alpha_model_copy, total_kd_alpha_theta
-    
     return total_one_hot_model_copy, total_one_hot_theta
 
-
-# def simple_train_with_query(args, model, train_data, theta, epoch_converge, inner_obj, query_percent=0.2, llm_i=-1):
-#     print(f"in train with drop, theta={theta}")
-#     if args.optim =='Adam':
-#         optimizer = Adam(model.parameters(), lr=args.inner_lr)
-#     elif args.optim =='SGD':
-#         optimizer = SGD(model.parameters(), lr=args.inner_lr, momentum=0.9)
-#     losses = AverageMeter("Loss", ":.3f")
-#     model_weights_cache = []
-#     opt_checkpoints_cache = []
-#     diverged = False
-#     print(type(train_data))
-#     print(train_data.fields)
-#     train_iter, = BucketIterator.splits(
-#         (train_data,),
-#         batch_sizes=(args.train_batch_size,),
-#         device=device,
-#         sort_key=lambda x: len(x.text),
-#         sort_within_batch=True,
-#         repeat=False,
-#         shuffle=args.shuffle_train,
-#     )
-#     model.to(args.device)
-#     for epoch in range(epoch_converge):
-#         model.train()
-#         top1 = AverageMeter("OuterAcc@1", ":6.2f")
-#         loss_list = torch.zeros(theta.shape, dtype=torch.float32).to(device)
-#         error_list = torch.zeros(theta.shape, dtype=torch.float32).to(device)
-#         correct_list = torch.zeros(theta.shape, dtype=torch.bool).to(device)
-#         for batch in tqdm(train_iter):
-#         # for batch in train_iter:
-#             # print(batch)
-#             (inputs, lens), labels = batch.text, batch.label
-#             labels = batch.label
-#             idx = batch.idx
-#             optimizer.zero_grad()
-#             output = model(inputs, lens)
-#             # print(f"[debug] output.shape={output.shape}, label.shape={labels.shape}")
-#             # print(f"[debug] output={output[:5]}, label={labels[:5]}")
-#             soft_max_output = torch.softmax(output,dim=-1)
-#             for i, index in enumerate(idx):
-#                 error_list[index] = abs(1-soft_max_output[i,labels[i]])
-#             correct_list[idx] = (torch.argmax(output,dim=-1)==labels)
-#             if inner_obj == "ce":
-#                 loss_list[idx] = F.cross_entropy(output, labels, reduction='none').flatten()
-#                 if not args.normalize:
-#                     loss = torch.mean(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])
-#                 else:
-#                     loss = torch.sum(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])/torch.sum(theta[idx])
-#             elif inner_obj=='kl':
-#                 one_hot = torch.zeros(len(labels),len(LABEL.vocab.stoi)).cuda().scatter_(1, labels.view(-1, 1), args.init_label).cuda()
-#                 one_hot = F.softmax(one_hot, dim=1)
-#                 loss_vec = torch.mean(F.softmax(output, dim=1)*(F.log_softmax(output, dim=1)-torch.log(one_hot)), dim=1)
-#                 loss_list[idx] = loss_vec
-#                 loss = torch.mean(loss_vec*theta[idx])
-#             acc = loss_utils.accuracy(output, labels)
-#             top1.update(acc, labels.size(0))
-#             losses.update(loss.item(), labels.size(0))
-#             loss.backward()
-#             optimizer.step()
-        
-#         # # remove the ones with too big the loss
-#         # top_threshold = torch.quantile(loss_list, 1-drop_percent)
-#         # loss_list[loss_list >= top_threshold] = 0.
-#         # theta[loss_list >= top_threshold] = 0. # 
-#         # sum_theta = torch.sum(theta)
-#         # theta = sum_theta * loss_list / torch.sum(loss_list)
-
-#         # query the top <query_percent> of data with largest loss
-#         loss_list = loss_list.view(-1)
-#         # logging.info(f"query for eval: LLM#{llm_i}, loss_list={loss_list}")
-#         top_threshold = torch.quantile(loss_list, 1-query_percent)
-#         num_elements_to_query = int(query_percent * len(loss_list))
-#         sorted_values, sorted_indices = torch.sort(loss_list, descending=True)
-#         query_indices = sorted_indices[:num_elements_to_query]
-#         args.query_indices = list(query_indices.int().detach().cpu().numpy())
-#         args.query_indices = [int(item) for item in args.query_indices]
-        
-#         temp_device = args.device
-#         args.device = None
-#         # result_data = []
-#         # QUERY_BATCH = args.query_batch_size
-#         # _BATCH_BIN = [i for i in range(0,num_elements_to_query,QUERY_BATCH)] + [num_elements_to_query]
-#         # for batch_bin_index in range(len(_BATCH_BIN)-1):
-#         #     result_data += gen_evaluation(args, query_data=query_data[_BATCH_BIN[batch_bin_index]:_BATCH_BIN[batch_bin_index+1]])
-#         result_data = gen_evaluation(args, data_file_name=args.query_input_file[llm_i])
-#         # result_data = gen_evaluation(args, query_data=query_data, data_file_name=args.query_input_file[llm_i])
-#         args.device = temp_device
-
-#         # select_bad
-#         print(f"[debug] check device {args.device}")
-#         bad_sample_list = select_bad_sample_based_on_query(args, result_data, query_indices)
-
-#         if len(bad_sample_list) > 0:
-#             for bad_sample_index in bad_sample_list:
-#                 loss_list[bad_sample_index] = 0.
-#                 theta[bad_sample_index] = 0. # 
-#         sum_theta = torch.sum(theta)
-#         # BETA = 0.9
-#         for i in range(len(theta)):
-#             theta[i] = theta[i] * (args.BETA**((error_list[i])*(1 if correct_list[i] else -1)))
-#         theta = sum_theta * loss_list / torch.sum(loss_list)
-
-#     model.to("cpu")
-#     opt_checkpoints_cache.append(optimizer.state_dict())
-#     model_weights_cache.append(copy.deepcopy(model.state_dict()))
-#     if math.isnan(loss.item()):
-#         diverged = True
-#     return model, losses.avg, top1.avg, model_weights_cache, opt_checkpoints_cache, diverged, theta
-
-
-# def select_bad_sample_based_on_query(args, results, query_indices, relevant_threshold=0.1):
-#     bad_sample_indices_list = []
-#     if args.task_name == 'imdb':
-#         for evaluation_result, indice in zip(results, query_indices):
-#             if evaluation_result['relevant'] <= relevant_threshold:
-#                 bad_sample_indices_list.append(indice)
-#             # conflict of aggrement between original label and evaluation prediction, drop it
-#             if evaluation_result['Y'] == 1 and (evaluation_result['positive'] < evaluation_result['negative']):
-#                 bad_sample_indices_list.append(indice)
-#             if evaluation_result['Y'] == 0 and (evaluation_result['positive'] > evaluation_result['negative']):
-#                 bad_sample_indices_list.append(indice)
-#     return bad_sample_indices_list
-
-# def simple_train(model, train_iter, theta, epoch_converge, inner_obj, iter_count=-1):
-#     if args.optim =='Adam':
-#         optimizer = Adam(model.parameters(), lr=args.inner_lr)
-#     elif args.optim =='SGD':
-#         optimizer = SGD(model.parameters(), lr=args.inner_lr, momentum=0.9)
-#     losses = AverageMeter("Loss", ":.3f")
-#     model_weights_cache = []
-#     opt_checkpoints_cache = []
-#     diverged = False
-#     model.to(args.device)
-#     for epoch in range(epoch_converge):
-#         model.train()
-#         top1 = AverageMeter("OuterAcc@1", ":6.2f")
-#         loss_items = torch.tensor([],dtype=float).to(device)
-#         loss_list = torch.zeros(theta.shape, dtype=torch.float32).to(device)
-#         for batch in tqdm(train_iter):
-#         # for batch in train_iter:
-#             (inputs, lens), labels = batch.text, batch.label
-#             labels = batch.label
-#             idx = batch.idx
-#             optimizer.zero_grad()
-#             output = model(inputs, lens)
-#             if inner_obj == "ce":
-#                 loss_list[idx] = F.cross_entropy(output, labels, reduction='none').flatten()
-#                 if not args.normalize:
-#                     loss = torch.mean(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])
-#                     loss_items = torch.cat((loss_items, F.cross_entropy(output, labels, reduction='none').flatten()), 0)
-#                 else:
-#                     loss = torch.sum(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])/torch.sum(theta[idx])
-#                     loss_items = torch.cat((loss_items, F.cross_entropy(output, labels, reduction='none').flatten()), 0)
-#             elif inner_obj=='kl':
-#                 one_hot = torch.zeros(len(labels),len(LABEL.vocab.stoi)).cuda().scatter_(1, labels.view(-1, 1), args.init_label).cuda()
-#                 one_hot = F.softmax(one_hot, dim=1)
-#                 loss_vec = torch.mean(F.softmax(output, dim=1)*(F.log_softmax(output, dim=1)-torch.log(one_hot)), dim=1)
-#                 loss = torch.mean(loss_vec*theta[idx])
-#                 loss_list[idx] = loss_vec
-#                 loss_items = torch.cat((loss_items, loss_vec), 0)
-#             acc = loss_utils.accuracy(output, labels)
-#             top1.update(acc, labels.size(0))
-#             losses.update(loss.item(), labels.size(0))
-#             loss.backward()
-#             optimizer.step()
-#     model.to("cpu")
-#     opt_checkpoints_cache.append(optimizer.state_dict())
-#     model_weights_cache.append(copy.deepcopy(model.state_dict()))
-#     if math.isnan(loss.item()):
-#         diverged = True
-#     # if iter_count != -1:
-#     #     print("saving")
-#     #     torch.save(loss_list, f"results/loss_items/{args.task_name}_{str(args.llms)}_{iter_count}.pt")
-#     return model, losses.avg, top1.avg, model_weights_cache, opt_checkpoints_cache, diverged
 
 
 def assign_learning_rate(optimizer, new_lr):
     for param_group in optimizer.param_groups:
         param_group["lr"] = new_lr
 
-# def get_grad_weights_on_valid(model, val_iter, theta):
-#     grad_weights_on_full_train = []
-#     losses = AverageMeter("OuterLoss", ":.3f")
-#     top1 = AverageMeter("OuterAcc@1", ":6.2f")
-#     for batch_idx, batch in enumerate(val_iter):
-#         idx = batch.idx
-#         theta_batch = theta[idx]
-#         (inputs, lens), labels = batch.text, batch.label
-#         labels = batch.label
-#         # print("[debug] in get_grad_weights_on_valid, idx", idx)
-#         # print("[debug] in get_grad_weights_on_valid, theta_batch", theta_batch)
-#         # print("[debug] in get_grad_weights_on_valid, labels", labels)
-#         output = model(inputs, lens)
-#         # print("[debug] in get_grad_weights_on_valid, output", output)
-#         # print("[debug] in get_grad_weights_on_valid, theta", theta)
-#         if args.use_dev_outer:
-#             loss = loss_func(output, labels)
-#         else:
-#             if args.hard:
-#                 val, idx = torch.topk(theta, int(args.threshold * len(theta)))
-#                 subnet = (theta_batch >= val[-1]).float()
-#                 selection = torch.nonzero(subnet.squeeze()).flatten()
-#             if args.outer_obj == "entropy":
-#                 loss = - torch.mul(F.softmax(output), F.log_softmax(output))
-#             elif args.outer_obj == "mae":
-#                 outputvar = output[:, labels]
-#                 loss = (1. - outputvar)
-#             elif args.outer_obj == "kl":
-#                 one_hot = torch.zeros(len(labels), len(LABEL.vocab.stoi)).cuda().scatter_(1, labels.view(-1, 1), args.init_label).cuda()
-#                 one_hot = F.softmax(one_hot, dim=1)
-#                 loss = F.softmax(output, dim=1)*(F.log_softmax(output, dim=1)-torch.log(one_hot))
-#             else:
-#                 one_hot = torch.zeros(len(labels), len(LABEL.vocab.stoi)).cuda().scatter_(1, labels.view(-1, 1), args.init_label).cuda()
-#                 one_hot = F.softmax(one_hot, dim=1)
-#                 loss = F.softmax(output, dim=1)*(F.log_softmax(output, dim=1)-torch.log(one_hot)) - torch.mul(F.softmax(output, dim=1), F.log_softmax(output, dim=1))
-#             if args.hard:
-#                 loss = torch.mean(loss[selection])
-#             else:
-#                 loss = torch.mean(theta_batch.detach().view(-1,1)*loss)
-#         # print("[debug] in get_grad_weights_on_valid, loss", loss)
-#         acc = loss_utils.accuracy(output, labels)
-#         losses.update(loss.item(), labels.size(0))
-#         top1.update(acc, labels.size(0))
-#         grad_weights_on_full_train_batch = torch.autograd.grad(loss, model.parameters())
-#         if batch_idx > 0:
-#             grad_weights_on_full_train = [wb+w for wb, w in zip(grad_weights_on_full_train_batch, grad_weights_on_full_train)]
-#         else:
-#             grad_weights_on_full_train = grad_weights_on_full_train_batch
-#     if args.mean_grad:
-#         grad_weights_on_full_train = [g/len(val_iter) for g in grad_weights_on_full_train]
-#     return grad_weights_on_full_train,  top1.avg, losses.avg
-
-
-# def solve_with_query(args, model, train_data, test_loader):
-#     '''
-#         input parameters:
-#             - model: trainable model
-#             - train_data: <list>, [train_dataset_for_synthetic_data_from_each_LLM]
-#             - test_loader: <Object>
-#     '''
-#     # assert len(train_loader) == len(train_loader_backward) == args.len_LLM
-#     init_model = copy.deepcopy(model)
-#     # best_model = 
-#     theta = []
-#     if args.use_sigmoid:
-#         for i in range(len(train_data)):
-#             theta.append(torch.full([len(train_data[i])], 0, dtype=torch.float, requires_grad=True, device=device))
-#     else:
-#         for i in range(len(train_data)):
-#             theta.append(torch.full([len(train_data[i])], args.init_theta, dtype=torch.float, requires_grad=True, device=device))
-#     if args.optim =='Adam':
-#         theta_opt = Adam(theta, lr=args.outer_lr)
-#     elif args.optim =='SGD':
-#         theta_opt = SGD(theta, lr=args.outer_lr, momentum=0.9)
-#     for _theta in theta:
-#         _theta.grad = torch.zeros_like(_theta)
-#     best_theta = theta # <list>
-#     temp_use_sigmoid = args.use_sigmoid
-#     for i in range(args.len_LLM):
-#         # model = copy.deepcopy(init_model)
-#         print(f"training with data from #{i} LLM: {args.llms[i]}")
-#         args.use_sigmoid = temp_use_sigmoid
-#         for outer_iter in range(args.max_outer_iter):
-#             # for i in range(args.len_LLM):
-#             #     print("**", theta[i].grad)
-#             if args.temp_anneal:
-#                 temp = args.end_temp + (args.max_outer_iter*(args.len_LLM-i) - outer_iter)/(args.max_outer_iter*args.len_LLM) * (1-args.end_temp)
-#                 print("[debug] temp", temp)
-#             else:
-#                 temp = 1
-#             if args.use_sigmoid:
-#                 theta_mapped = torch.sigmoid(theta[i]/temp)
-#             else:
-#                 theta_mapped = theta[i]
-#             print("theta[i]", theta[i], torch.sigmoid(torch.tensor([0.0])))
-#             print("theta_mapped", theta_mapped)
-#             # for i in range(args.len_LLM):
-#             #     print("***", theta[i].grad)
-#             if not args.disable_outer_scheduler:
-#                 assign_learning_rate(theta_opt, 0.5 * (1 + np.cos(np.pi * (outer_iter+args.max_outer_iter*i) / args.max_outer_iter*args.len_LLM)) * args.outer_lr)
-
-#             # ############## new common version ##############
-#             # diverged = True # diverged==True means loss==nan, which means the training failed
-#             # while diverged:
-#             #     model, loss_ft, train_acc_ft, model_weights_cache, opt_checkpoints_cache, diverged = simple_train(model, train_loader[i], theta_mapped.detach(),args.epoch_converge,args.inner_obj, iter_count=outer_iter)
-#             #     print(f"diverged {diverged}, train_acc {train_acc_ft}, train_loss {loss_ft}")
-            
-#             # if outer_iter % args.check_ft_every == 0:
-#             #     test_acc1_ft, test_loss_ft = eval(args, model, test_loader, name="test")
-#             #     # test_acc1_ft, test_loss_ft = eval(args, model, train_loader[args.len_LLM-1-i], name="test")
-#             #     # test_acc1_ft, test_loss_ft = eval(args, model, train_loader[i], name="test")
-#             #     print(f"LLM#{i}, #iter={outer_iter}, train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-#             #     logging.info(f"LLM#{i}, #iter={outer_iter}, train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-#             #     if args.wandb:
-#             #         wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-#             # theta_score=copy.deepcopy(theta[i])
-#             # ############## new common version ##############
-
-#             ############## new query version ##############
-#             if outer_iter == 0.0:
-#                 args.use_sigmoid = False
-#             diverged = True # diverged==True means loss==nan, which means the training failed
-#             while diverged:
-#                 model, loss_ft, train_acc_ft, model_weights_cache, opt_checkpoints_cache, diverged, theta[i] = simple_train_with_query(args, model, train_data[i], theta_mapped.detach(), args.epoch_converge, args.inner_obj, query_percent=args.query_percent, llm_i=i)
-#                 # model, loss_ft, train_acc_ft, model_weights_cache, opt_checkpoints_cache, diverged, theta[i]
-#                 print(f"query for eval: diverged {diverged}, train_acc {train_acc_ft}, train_loss {loss_ft}")
-            
-#             if outer_iter % args.check_ft_every == 0:
-#                 test_acc1_ft, test_loss_ft = eval(args, model, test_loader, name="test")
-#                 # test_acc1_ft, test_loss_ft = eval(args, model, train_loader[args.len_LLM-1-i], name="test")
-#                 # test_acc1_ft, test_loss_ft = eval(args, model, train_loader[i], name="test")
-#                 print(f"query for eval: LLM#{i}, #iter={outer_iter}, train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-#                 logging.info(f"query for eval: LLM#{i}, #iter={outer_iter}, train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-#                 if args.wandb:
-#                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-#             theta_score=theta[i]
-#             ############## new query version ##############
-
-#             best_theta[i]=theta_score
-
-#     print("++++++++++++++++finished solving++++++++++++++++++++")
-#     return best_theta
 
 def train_separate_models(args, model, train_data, small_train_data, small_valid_data, train_loader_backward, valid_loader, test_loader, main_outer_iter):
     init_model = [copy.deepcopy(_model) for _model in model]
@@ -2607,6 +1909,8 @@ def train_separate_models(args, model, train_data, small_train_data, small_valid
     best_theta = theta # <list>
     # temp_use_sigmoid = args.use_sigmoid
     
+    current_outer_iter_trained_model_iter0 = []
+    current_outer_iter_trained_more_steps_model_iter0 = []
     # for outer_iter in range(args.max_outer_iter):
     # for outer_iter in range(1):
     for outer_iter in range(5):
@@ -2667,6 +1971,9 @@ def train_separate_models(args, model, train_data, small_train_data, small_valid
             # torch.cuda.empty_cache()
             current_outer_iter_trained_model.append(model_copy_converged)
             current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
+            if outer_iter == 0:
+                current_outer_iter_trained_model_iter0.append(model_copy_converged)
+                current_outer_iter_trained_more_steps_model_iter0.append(model_copy_converged_ft)
             
             if outer_iter % args.check_ft_every == 0:
                 test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
@@ -2733,10 +2040,11 @@ def train_separate_models(args, model, train_data, small_train_data, small_valid
     elif 'inheritSample' in args.fuse_dataset_weight:
         new_theta_mapped = [copy.deepcopy(_theta) for _theta in theta_mapped]
     
-    return current_outer_iter_trained_model, current_outer_iter_trained_more_steps_model, best_theta, new_theta_mapped, new_theta_mapped
+    return current_outer_iter_trained_model_iter0, current_outer_iter_trained_more_steps_model_iter0, best_theta, new_theta_mapped, new_theta_mapped
+    # return current_outer_iter_trained_model, current_outer_iter_trained_more_steps_model, best_theta, new_theta_mapped, new_theta_mapped
 
 
-def solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_loader_backward, valid_loader, test_loader):
+def solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_loader_backward, valid_loader, gold_loader, test_loader, perform_few_shot_gen=False):
     '''
         input parameters:
             - model: trainable model
@@ -2768,109 +2076,172 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     # temp_use_sigmoid = args.use_sigmoid
     
     # for outer_iter in range(args.max_outer_iter):
-    # for outer_iter in range(1):
-    # for outer_iter in range(30):
-    for outer_iter in range(30//2):
+    for outer_iter in range(1):
+    # for outer_iter in range(5):
+        current_outer_iter_trained_model_iter0 = []
+        current_outer_iter_trained_more_steps_model_iter0 = []
         # args.use_sigmoid = temp_use_sigmoid
-        # step (1): train each small local model for each syn dataset with args.epoch_converge iterations
-        current_outer_iter_trained_model = []
-        current_outer_iter_trained_more_steps_model = []
-        theta_mapped = [copy.deepcopy(_theta) for _theta in theta]
-        for i in range(args.len_LLM):
-            print(f"training with data from #{i} LLM {args.llms[i]} in iter=#{outer_iter}")
-            if args.temp_anneal:
-                temp = args.end_temp + (args.max_outer_iter*(args.len_LLM-i) - outer_iter)/(args.max_outer_iter*args.len_LLM) * (1-args.end_temp)
-                print("[debug] temp", temp)
-            else:
-                temp = 1
-            if args.use_sigmoid:
-            # if args.use_sigmoid and outer_iter==0.0:
-                theta_mapped[i] = torch.sigmoid(theta[i]/temp)
-            else:
-                theta_mapped[i] = theta[i]
-            # print("theta[i]", theta[i], torch.sigmoid(torch.tensor([0.0])))
-            # print("theta_mapped[i]", theta_mapped[i])
-            # for i in range(args.len_LLM):
-            #     print("***", theta[i].grad)
-            if not args.disable_outer_scheduler:
-                assign_learning_rate(theta_opt, 0.5 * (1 + np.cos(np.pi * (outer_iter+args.max_outer_iter*i) / args.max_outer_iter*args.len_LLM)) * args.outer_lr)
+        for _outer_iter in range(1 if 'Flip' in args.fuse_dataset_sample_selection else 1): # this is for separate model WA
+            # step (1): train each small local model for each syn dataset with args.epoch_converge iterations
+            current_outer_iter_trained_model = []
+            current_outer_iter_trained_more_steps_model = []
+            theta_mapped = [copy.deepcopy(_theta) for _theta in theta]
+            for i in range(args.len_LLM):
+                print(f"training with data from #{i} LLM {args.llms[i]} in iter=#{_outer_iter}")
+                if args.temp_anneal:
+                    temp = args.end_temp + (args.max_outer_iter*(args.len_LLM-i) - _outer_iter)/(args.max_outer_iter*args.len_LLM) * (1-args.end_temp)
+                    print("[debug] temp", temp)
+                else:
+                    temp = 1
+                if args.use_sigmoid:
+                # if args.use_sigmoid and outer_iter==0.0:
+                    theta_mapped[i] = torch.sigmoid(theta[i]/temp)
+                else:
+                    theta_mapped[i] = theta[i]
+                # print("theta[i]", theta[i], torch.sigmoid(torch.tensor([0.0])))
+                # print("theta_mapped[i]", theta_mapped[i])
+                # for i in range(args.len_LLM):
+                #     print("***", theta[i].grad)
+                if not args.disable_outer_scheduler:
+                    assign_learning_rate(theta_opt, 0.5 * (1 + np.cos(np.pi * (_outer_iter+args.max_outer_iter*i) / args.max_outer_iter*args.len_LLM)) * args.outer_lr)
 
-            ############## original weird version ##############
-            if 'Reweight' in args.fuse_dataset_weight:
-                print_info = [f"crossing: LLM#{i}", "fused_adjust_iter", "train_loss_ft", "train_acc_ft", "test_acc_ft", "test_loss_ft"]
-                theta_mapped[i], model_copy_converged_ft, _, _ = solve_reweight_v2(args, args.fused_model, [small_train_data[i]], [theta_mapped[i].detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
-                current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
-                theta[i] = copy.deepcopy(theta_mapped[i])
-                theta_score = copy.deepcopy(theta[i])
-                # print(f"new theta[i] = {theta[i]}")
-                best_theta[i]=theta_score
-            else:
-                diverged = True # diverged==True means loss==nan, which means the training failed
-                while diverged:
-                    model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[i], small_train_data[i], theta_mapped[i].detach(), args.epoch_converge, args.inner_obj, test_loader)
-                    print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                    if outer_iter % args.check_ft_every==0:
-                        model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[i], small_train_data[i], theta_mapped[i].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
-                # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
-                # print(f"[debug] {args.use_dev_outer}")
-                if args.stochastic_outer and args.subset_outer:
-                    if args.use_dev_outer:
-                        valid_loader = construct_outer_subloader(args, dev_data_all)
-                    else:
-                        valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+                ############## original weird version ##############
+                if 'Reweight' in args.fuse_dataset_weight:
+                    print_info = [f"crossing: LLM#{i}", "fused_adjust_iter", "train_loss_ft", "train_acc_ft", "test_acc_ft", "test_loss_ft"]
+                    theta_mapped[i], model_copy_converged_ft, _, _ = solve_reweight_v2(args, args.fused_model, [small_train_data[i]], [theta_mapped[i].detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
+                    current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
+                    theta[i] = copy.deepcopy(theta_mapped[i])
+                    theta_score = copy.deepcopy(theta[i])
+                    # print(f"new theta[i] = {theta[i]}")
+                    best_theta[i]=theta_score
+                else:
+                    diverged = True # diverged==True means loss==nan, which means the training failed
+                    while diverged:
+                        model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[i], small_train_data[i], theta_mapped[i].detach(), args.epoch_converge, args.inner_obj, test_loader)
+                        print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                        if _outer_iter % args.check_ft_every==0:
+                            model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[i], small_train_data[i], theta_mapped[i].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                    # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+                    # print(f"[debug] {args.use_dev_outer}")
+                    if args.stochastic_outer and args.subset_outer:
+                        if args.use_dev_outer:
+                            valid_loader = construct_outer_subloader(args, dev_data_all)
+                        else:
+                            valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+                    
+                    # grad_weights_on_full_train, top1_outer, loss_outer = get_grad_weights_on_valid(model_copy_converged, valid_loader, theta_mapped[i].detach())
+                    # print(f"outer acc {top1_outer}, loss_outer {loss_outer}")
+                    # grad_theta = repass_backward(model, model_weights_cache, opt_checkpoints_cache, grad_weights_on_full_train, train_loader_backward[i], theta_mapped[i], theta[i])
+                    # # print(f"[debug] grad_theta.shape {grad_theta.shape} {grad_theta} {theta[i].grad}")
+                    # theta_opt.zero_grad()
+                    # print(f"sum grads {sum([g for g in grad_theta])}")
+                    # with torch.no_grad():
+                    #     theta[i].grad += grad_theta.data
+                    # torch.nn.utils.clip_grad_norm_(theta[i], args.clip_constant)
+                    # theta_opt.step()
+                    # if not args.use_sigmoid:
+                    #     with torch.no_grad():
+                    #         theta[i].data.clamp_(min=0, max=args.theta_upper_lim)
+                    # torch.cuda.empty_cache()
+                    current_outer_iter_trained_model.append(model_copy_converged)
+                    current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
+                    if _outer_iter == 0:
+                        current_outer_iter_trained_model_iter0.append(model_copy_converged)
+                        current_outer_iter_trained_more_steps_model_iter0.append(model_copy_converged_ft)
                 
-                # grad_weights_on_full_train, top1_outer, loss_outer = get_grad_weights_on_valid(model_copy_converged, valid_loader, theta_mapped[i].detach())
-                # print(f"outer acc {top1_outer}, loss_outer {loss_outer}")
-                # grad_theta = repass_backward(model, model_weights_cache, opt_checkpoints_cache, grad_weights_on_full_train, train_loader_backward[i], theta_mapped[i], theta[i])
-                # # print(f"[debug] grad_theta.shape {grad_theta.shape} {grad_theta} {theta[i].grad}")
-                # theta_opt.zero_grad()
-                # print(f"sum grads {sum([g for g in grad_theta])}")
-                # with torch.no_grad():
-                #     theta[i].grad += grad_theta.data
-                # torch.nn.utils.clip_grad_norm_(theta[i], args.clip_constant)
-                # theta_opt.step()
-                # if not args.use_sigmoid:
-                #     with torch.no_grad():
-                #         theta[i].data.clamp_(min=0, max=args.theta_upper_lim)
-                # torch.cuda.empty_cache()
-                current_outer_iter_trained_model.append(model_copy_converged)
-                current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
-            
-                if outer_iter % args.check_ft_every == 0:
-                    test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-                    # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
-                    print(f"crossing: LLM#{i}, #iter={outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-                    logging.info(f"crossing: LLM#{i}, #iter={outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-                    if args.wandb:
-                        wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-            # if outer_iter % args.check_ft_every == 0:
-            #     test_acc1, test_loss = eval(args, model_copy_converged, test_loader, name="test")
-            #     # test_acc1, test_loss = eval(args, model_copy_converged, train_loader[i], name="test")
-            #     print(f"crossing: LLM#{i}, #iter={outer_iter}, beta({args.BETA}), train_loss={loss}, train_acc={train_acc}, test_acc={test_acc1}, test_loss={test_loss}")
-            #     logging.info(f"crossing: LLM#{i}, #iter={outer_iter}, beta({args.BETA}), train_loss={loss}, train_acc={train_acc}, test_acc={test_acc1}, test_loss={test_loss}")
-            #     if args.wandb:
-            #         wandb.log({"train_loss": loss,"train_acc":train_acc,"test_acc": test_acc1, "test_loss":test_loss})
-            
-            # theta_score=copy.deepcopy(theta[i])
-            # print(f"train_loss={loss}, loss_outer={loss_outer}, temp={temp}")
-            # logging.info(f"train_loss={loss}, loss_outer={loss_outer}, temp={temp}")
-            # if args.wandb:
-            #     wandb.log({"train_loss": loss, "loss_outer": loss_outer, "temp":temp})
-            ############## original weird version ##############
+                    if _outer_iter % args.check_ft_every == 0:
+                        test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+                        # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+                        print(f"crossing: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                        logging.info(f"crossing: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                        if args.wandb:
+                            wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+                # if _outer_iter % args.check_ft_every == 0:
+                #     test_acc1, test_loss = eval(args, model_copy_converged, test_loader, name="test")
+                #     # test_acc1, test_loss = eval(args, model_copy_converged, train_loader[i], name="test")
+                #     print(f"crossing: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss={loss}, train_acc={train_acc}, test_acc={test_acc1}, test_loss={test_loss}")
+                #     logging.info(f"crossing: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss={loss}, train_acc={train_acc}, test_acc={test_acc1}, test_loss={test_loss}")
+                #     if args.wandb:
+                #         wandb.log({"train_loss": loss,"train_acc":train_acc,"test_acc": test_acc1, "test_loss":test_loss})
+                
+                # theta_score=copy.deepcopy(theta[i])
+                # print(f"train_loss={loss}, loss_outer={loss_outer}, temp={temp}")
+                # logging.info(f"train_loss={loss}, loss_outer={loss_outer}, temp={temp}")
+                # if args.wandb:
+                #     wandb.log({"train_loss": loss, "loss_outer": loss_outer, "temp":temp})
+                ############## original weird version ##############
 
-        model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model, small_valid_data, _type=args.weight_adjust_criterial)
-        # model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model, train_data, _type=args.weight_adjust_criterial)
-        if 'Adjust' in args.fuse_dataset_weight:
-            theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_model, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
-            for j in range(args.len_LLM):
-                theta[j] = copy.deepcopy(theta_mapped[j])
-                theta_score = copy.deepcopy(theta[j])
-                # print(f"new theta[j] = {theta[j]}")
-                best_theta[j]=theta_score
+            model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model, small_valid_data, _type=args.weight_adjust_criterial)
+            # model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model, train_data, _type=args.weight_adjust_criterial)
+            if 'Adjust' in args.fuse_dataset_weight:
+                theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_model, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
+                for j in range(args.len_LLM):
+                    theta[j] = copy.deepcopy(theta_mapped[j])
+                    theta_score = copy.deepcopy(theta[j])
+                    # print(f"new theta[j] = {theta[j]}")
+                    best_theta[j]=theta_score
+            
+            torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{_outer_iter}_main_separate_models.pth")
+            torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{_outer_iter}_main_theta_acc.pth")
         
-        torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{outer_iter}_main_separate_models.pth")
-        torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{outer_iter}_main_theta_acc.pth")
+
+        # ###### train with gold_training data ######
+        current_outer_iter_trained_model_iter0_after_gold = []
+        current_outer_iter_trained_more_steps_model_iter0_after_gold = []
+        current_outer_iter_trained_model_after_gold = []
+        current_outer_iter_trained_more_steps_model_after_gold = []
+        for i in range(args.len_LLM):
+            print(f"training STM #{i} with gold data ")
+            gold_theta = torch.full([len(gold_iter.dataset)], 0.5, dtype=torch.float, device=device) #, requires_grad=True
+            diverged = True # diverged==True means loss==nan, which means the training failed
+            while diverged:
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[i], gold_iter.dataset, gold_theta.detach(), 1, args.inner_obj, test_loader)
+                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                if _outer_iter % args.check_ft_every==0:
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[i], gold_iter.dataset, gold_theta.detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
+            # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+            # print(f"[debug] {args.use_dev_outer}")
+            if args.stochastic_outer and args.subset_outer:
+                if args.use_dev_outer:
+                    valid_loader = construct_outer_subloader(args, dev_data_all)
+                else:
+                    valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+            
+            current_outer_iter_trained_model_after_gold.append(model_copy_converged)
+            current_outer_iter_trained_more_steps_model_after_gold.append(model_copy_converged_ft)
+            if _outer_iter == 0:
+                current_outer_iter_trained_model_iter0_after_gold.append(model_copy_converged)
+                current_outer_iter_trained_more_steps_model_iter0_after_gold.append(model_copy_converged_ft)
         
+            if _outer_iter % args.check_ft_every == 0:
+                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+                # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+                print(f"train after gold: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                logging.info(f"train after gold: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                if args.wandb:
+                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+
+
+        model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model_after_gold, small_valid_data, _type=args.weight_adjust_criterial)
+        # if 'Adjust' in args.fuse_dataset_weight:
+        #     theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_model_after_gold, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
+        #     for j in range(args.len_LLM):
+        #         theta[j] = copy.deepcopy(theta_mapped[j])
+        #         theta_score = copy.deepcopy(theta[j])
+        #         # print(f"new theta[j] = {theta[j]}")
+        #         best_theta[j]=theta_score
+        
+        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, current_outer_iter_trained_more_steps_model, current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
+        
+        torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
+        print(f"saved changes")
+        # ###### train with gold_training data ######
+
+
+        # use the first model for further calculation
+        current_outer_iter_trained_model = current_outer_iter_trained_model_iter0
+        current_outer_iter_trained_more_steps_model = current_outer_iter_trained_more_steps_model_iter0
+
         ######### train a new llm with new data #########
         if args.fuse_dataset > 0 and args.kd_slm == 0:
             model_importance = model_total_acc / torch.sum(model_total_acc)
@@ -2880,7 +2251,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             if args.small_model_name.upper() == 'LSTM':            
                 for row, column in zip(kept_theta_row, kept_theta_column):
                     selected_idx.append(train_data[row][column].idx)
-            elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 for row, column in zip(kept_theta_row, kept_theta_column):
                     selected_idx.append(train_data[row].idx[column])
             torch.save((kept_theta_row, kept_theta_column, selected_idx, model_importance, best_theta), f"{args.result_file_path}/selected_sample_index_{outer_iter}.pth")
@@ -2985,19 +2356,19 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column, new_train_data, new_small_train_data, new_small_valid_data = train_to_converge_with_weight_adjust_and_label_flip_fused(args, args.fused_model, train_data, new_theta_mapped, current_outer_iter_trained_more_steps_model, (None, None), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, test_loader, outer_iter)
                 # TODO: need a new trained backward data loader
                 # print(f'here1-2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-                new_current_outer_iter_trained_model, new_current_outer_iter_trained_more_steps_model, new_best_thera, model_importance, new_theta_mapped = train_separate_models(args, model, new_train_data, new_small_train_data, new_small_valid_data, train_loader_backward, valid_loader, test_loader, outer_iter)
+                new_current_outer_iter_trained_model, new_current_outer_iter_trained_more_steps_model, new_best_theta, model_importance, new_theta_mapped = train_separate_models(args, model, new_train_data, new_small_train_data, new_small_valid_data, train_loader_backward, valid_loader, test_loader, outer_iter)
                 # print(f'here1-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             elif 'increasedTheta' in args.fuse_dataset_sample_selection:
                 high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column = train_to_converge_with_weight_adjust_and_selection_fused(args, args.fused_model, train_data, new_theta_mapped, (None, None), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, test_loader, outer_iter)
             torch.save((high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), f"{args.result_file_path}/iter{outer_iter}_quality_select.pth")
             # generate kd label awaring to sample qualtiy
             if args.kd_aggregate_weight == 'Equal' or args.kd_aggregate_weight == 'Entropy':
-                model_sample = torch.tensor(args.num_use_samples_inner).to(args.device)
+                model_sample = torch.tensor(args.sample_each_llm).to(args.device)
                 model_importance = model_sample / torch.sum(model_sample)
             elif args.kd_aggregate_weight == 'Model':
                 model_importance = model_total_acc / torch.sum(model_total_acc)
             elif args.kd_aggregate_weight == 'EqualModel':
-                model_sample = torch.tensor(args.num_use_samples_inner).to(args.device)
+                model_sample = torch.tensor(args.sample_each_llm).to(args.device)
                 model_importance = model_total_acc * model_sample
                 model_importance = model_total_acc / torch.sum(model_total_acc)
             else:
@@ -3007,11 +2378,11 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     # print(f'here0-1, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
                     kd_labeled_data, logits_per_sample, loss_per_sample, error_per_sample, logits_per_sample_ns, loss_per_sample_ns, error_per_sample_ns, logits_per_sample_s, loss_per_sample_s, error_per_sample_s = kd_label_entropy_aware(args, new_current_outer_iter_trained_more_steps_model, new_train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
                     # print(f'here0-2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-                    trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, new_train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter)
+                    trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, new_train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter, final_test=(not perform_few_shot_gen))
                     # print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
                 else:
                     kd_labeled_data, logits_per_sample, loss_per_sample, error_per_sample, logits_per_sample_ns, loss_per_sample_ns, error_per_sample_ns, logits_per_sample_s, loss_per_sample_s, error_per_sample_s = kd_label_entropy_aware(args, current_outer_iter_trained_more_steps_model, train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
-                    trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter)
+                    trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter, final_test=(not perform_few_shot_gen))
             else:
                 assert args.kd_aggregate_weight == 'Entropy', 'Implementation Error, currently supporting only Entropy based method'
                 if 'Flip' in args.fuse_dataset_sample_selection:
@@ -3022,12 +2393,12 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         elif args.kd_slm > 0:
             print(f'[debug] in kd for slm')
             if args.kd_aggregate_weight == 'Equal' or args.kd_aggregate_weight == 'Entropy':
-                model_sample = torch.tensor(args.num_use_samples_inner).to(args.device)
+                model_sample = torch.tensor(args.sample_each_llm).to(args.device)
                 model_importance = model_sample / torch.sum(model_sample)
             elif args.kd_aggregate_weight == 'Model':
                 model_importance = model_total_acc / torch.sum(model_total_acc)
             elif args.kd_aggregate_weight == 'EqualModel':
-                model_sample = torch.tensor(args.num_use_samples_inner).to(args.device)
+                model_sample = torch.tensor(args.sample_each_llm).to(args.device)
                 model_importance = model_total_acc * model_sample
                 model_importance = model_total_acc / torch.sum(model_total_acc)
             else:
@@ -3097,6 +2468,208 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                         wandb.log({"fused_train_loss": fused_train_loss,"fused_train_acc":fused_train_acc,"fused_test_acc": fused_test_acc1, "fused_test_loss":fused_test_loss})
         ############################ get a overall dataset based based on weight decay (end) ############################
 
+        if perform_few_shot_gen == True:
+            print(f'here0-5, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            # TODO: select sample with ambiguous and easy to learn
+            importance_score = [None] * args.len_LLM
+            confidence_score = [None] * args.len_LLM
+            variability_score = [None] * args.len_LLM
+            
+            # ########################### calculate influence score for top ambiguous and top easy-to-learn ###########################
+            if 'Flip' in args.fuse_dataset_sample_selection:
+                new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
+                for im in range(args.len_LLM):
+                    confidence_score[im], variability_score[im] = run_divergence_calculation(args, new_current_outer_iter_trained_more_steps_model, new_small_train_data[im])
+            else:
+                total_valid_data = merge_all_dataset(args, small_valid_data)
+                for im in range(args.len_LLM):
+                    confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
+            print(f"{confidence_score=}, {variability_score=}")
+            top_ambiguous_easy_to_learn_idx = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
+            logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
+            print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            if 'influence' in args.gen_sample_select:
+                if 'Flip' in args.fuse_dataset_sample_selection:
+                    for im in range(args.len_LLM):
+                        if len(top_ambiguous_easy_to_learn_idx[im]) == 0:
+                            importance_score[im] = []
+                            continue
+                        if args.small_model_name.upper() == 'LSTM':
+                            selected_train_dataset = []
+                            for column in top_ambiguous_easy_to_learn_idx[im]:
+                                selected_train_dataset.append(copy.deepcopy(new_small_train_data[im][column]))
+                            selected_train_data = data.Dataset(selected_train_dataset, new_small_train_data[im].fields)
+                        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                            selected_train_data = TokenizedDataset(
+                                file_path=(''),
+                            )
+                            selected_train_data.text = [] # clear all the samples
+                            selected_train_data.ids = [] # clear all the samples
+                            selected_train_data.attention_mask = [] # clear all the samples
+                            selected_train_data.label = [] # clear all the samples
+                            selected_train_data.idx = [] # clear all the samples
+                            for column in top_ambiguous_easy_to_learn_idx[im]:
+                                selected_train_data.text += [new_small_train_data[im].text[column]]
+                                selected_train_data.ids += [new_small_train_data[im].ids[column]]
+                                selected_train_data.attention_mask += [new_small_train_data[im].attention_mask[column]]
+                                selected_train_data.label += [new_small_train_data[im].label[column]]
+                                selected_train_data.idx += [new_small_train_data[im].idx[column]]
+                        importance_score[im] = run_full_influence_functions(args, trained_model, new_total_valid_data, selected_train_data, num_examples_to_test=len(new_total_valid_data), s_test_num_samples=50)
+                else:
+                    for im in range(args.len_LLM):
+                        if len(top_ambiguous_easy_to_learn_idx[im]) == 0:
+                            importance_score[im] = []
+                            continue
+                        if args.small_model_name.upper() == 'LSTM':
+                            selected_train_dataset = []
+                            for column in top_ambiguous_easy_to_learn_idx[im]:
+                                selected_train_dataset.append(copy.deepcopy(small_train_data[im][column]))
+                            selected_train_data = data.Dataset(selected_train_dataset, small_train_data[im].fields)
+                        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                            selected_train_data = TokenizedDataset(
+                                file_path=(''),
+                            )
+                            selected_train_data.text = [] # clear all the samples
+                            selected_train_data.ids = [] # clear all the samples
+                            selected_train_data.attention_mask = [] # clear all the samples
+                            selected_train_data.label = [] # clear all the samples
+                            selected_train_data.idx = [] # clear all the samples
+                            selected_train_data.is_syn = [] # clear all the samples
+                            for column in top_ambiguous_easy_to_learn_idx[im]:
+                                selected_train_data.text += [small_train_data[im].text[column]]
+                                selected_train_data.ids += [small_train_data[im].ids[column]]
+                                selected_train_data.attention_mask += [small_train_data[im].attention_mask[column]]
+                                selected_train_data.label += [small_train_data[im].label[column]]
+                                selected_train_data.idx += [small_train_data[im].idx[column]]
+                                selected_train_data.is_syn += [small_train_data[im].is_syn[column]]
+                        importance_score[im] = run_full_influence_functions(args, trained_model, total_valid_data, selected_train_data, num_examples_to_test=len(total_valid_data), s_test_num_samples=50) 
+                print(f'here0-6(2), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+                print(f"{importance_score=}, {top_ambiguous_easy_to_learn_idx=}")
+                print(f"{len(importance_score[im])}, {len(top_ambiguous_easy_to_learn_idx[im])}")
+                prompt_samples_idx = importance_selection_among_good_dynamic_samples(importance_score, top_ambiguous_easy_to_learn_idx, args.gen_few_shot_k)
+            else:
+                flat_top_ambiguous_easy_to_learn_idx = [x for xs in top_ambiguous_easy_to_learn_idx for x in xs]
+                model_idx_list = []
+                for _im in range(args.len_LLM):
+                    for _ in range(len(top_ambiguous_easy_to_learn_idx[_im])):
+                        model_idx_list.append(_im)
+                random_sample_pos = random.sample(range(len(flat_top_ambiguous_easy_to_learn_idx)),args.gen_few_shot_k)
+                prompt_samples_idx = [(model_idx_list[_g], flat_top_ambiguous_easy_to_learn_idx[_g]) for _g in random_sample_pos]
+            print(f"{prompt_samples_idx=}")
+            # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
+            # ########################### calculate influence score for top ambiguous and top easy-to-learn ###########################
+
+            # if 'Flip' in args.fuse_dataset_sample_selection:
+            #     new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
+            # else:
+            #     total_valid_data = merge_all_dataset(args, small_valid_data)
+            # top_ambiguous_easy_to_learn_idx = sample_error_decreased_selection(error_per_sample_change, args.gen_few_shot_k, args.gen_few_shot_pool_size, is_random=(args.gen_sample_select.replace('influence','')))
+            # logging.info(f"#error decreased samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
+            # print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            # if 'influence' in args.gen_sample_select:
+            #     if 'Flip' in args.fuse_dataset_sample_selection:
+            #         for im in range(args.len_LLM):
+            #             if len(top_ambiguous_easy_to_learn_idx[im]) == 0:
+            #                 importance_score[im] = []
+            #                 continue
+            #             if args.small_model_name.upper() == 'LSTM':
+            #                 selected_train_dataset = []
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_dataset.append(copy.deepcopy(new_small_train_data[im][column]))
+            #                 selected_train_data = data.Dataset(selected_train_dataset, new_small_train_data[im].fields)
+            #             elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+            #                 selected_train_data = TokenizedDataset(
+            #                     file_path=(''),
+            #                 )
+            #                 selected_train_data.text = [] # clear all the samples
+            #                 selected_train_data.ids = [] # clear all the samples
+            #                 selected_train_data.attention_mask = [] # clear all the samples
+            #                 selected_train_data.label = [] # clear all the samples
+            #                 selected_train_data.idx = [] # clear all the samples
+            #                 selected_train_data.is_syn = [] # clear all the samples
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_data.text += [new_small_train_data[im].text[column]]
+            #                     selected_train_data.ids += [new_small_train_data[im].ids[column]]
+            #                     selected_train_data.attention_mask += [new_small_train_data[im].attention_mask[column]]
+            #                     selected_train_data.label += [new_small_train_data[im].label[column]]
+            #                     selected_train_data.idx += [new_small_train_data[im].idx[column]]
+            #                     selected_train_data.is_syn += [new_small_train_data[im].is_syn[column]]
+            #             importance_score[im] = run_full_influence_functions(args, trained_model, new_total_valid_data, selected_train_data, num_examples_to_test=len(new_total_valid_data), s_test_num_samples=100)
+            #     else:
+            #         for im in range(args.len_LLM):
+            #             if len(top_ambiguous_easy_to_learn_idx[im]) == 0:
+            #                 importance_score[im] = []
+            #                 continue
+            #             if args.small_model_name.upper() == 'LSTM':
+            #                 selected_train_dataset = []
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_dataset.append(copy.deepcopy(small_train_data[im][column]))
+            #                 selected_train_data = data.Dataset(selected_train_dataset, small_train_data[im].fields)
+            #             elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+            #                 selected_train_data = TokenizedDataset(
+            #                     file_path=(''),
+            #                 )
+            #                 selected_train_data.text = [] # clear all the samples
+            #                 selected_train_data.ids = [] # clear all the samples
+            #                 selected_train_data.attention_mask = [] # clear all the samples
+            #                 selected_train_data.label = [] # clear all the samples
+            #                 selected_train_data.idx = [] # clear all the samples
+            #                 selected_train_data.is_syn = [] # clear all the samples
+            #                 for column in top_ambiguous_easy_to_learn_idx[im]:
+            #                     selected_train_data.text += [small_train_data[im].text[column]]
+            #                     selected_train_data.ids += [small_train_data[im].ids[column]]
+            #                     selected_train_data.attention_mask += [small_train_data[im].attention_mask[column]]
+            #                     selected_train_data.label += [small_train_data[im].label[column]]
+            #                     selected_train_data.idx += [small_train_data[im].idx[column]]
+            #                     selected_train_data.is_syn += [small_train_data[im].is_syn[column]]
+            #             importance_score[im] = run_full_influence_functions(args, trained_model, total_valid_data, selected_train_data, num_examples_to_test=len(total_valid_data), s_test_num_samples=100) 
+            #     print(f'here0-6(2), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            #     print(f"{importance_score=}, {top_ambiguous_easy_to_learn_idx=}")
+            #     print(f"{len(importance_score[im])}, {len(top_ambiguous_easy_to_learn_idx[im])}")
+            #     prompt_samples_idx = importance_selection_among_good_dynamic_samples(importance_score, top_ambiguous_easy_to_learn_idx, args.gen_few_shot_k)
+            # else:
+            #     flat_top_ambiguous_easy_to_learn_idx = [x for xs in top_ambiguous_easy_to_learn_idx for x in xs]
+            #     model_idx_list = []
+            #     for _im in range(args.len_LLM):
+            #         for _ in range(len(top_ambiguous_easy_to_learn_idx[_im])):
+            #             model_idx_list.append(_im)
+            #     random_sample_pos = random.sample(range(len(flat_top_ambiguous_easy_to_learn_idx)),args.gen_few_shot_k)
+            #     prompt_samples_idx = [(model_idx_list[_g], flat_top_ambiguous_easy_to_learn_idx[_g]) for _g in random_sample_pos]
+            # print(f"{prompt_samples_idx=}")
+            # # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
+            
+
+            for im in range(args.len_LLM):
+                gen_task_file_dir = f'{args.working_prompt_dir[im]}{args.i_step}/'
+                if not os.path.exists(gen_task_file_dir):
+                    os.makedirs(gen_task_file_dir)
+                args.gen_task_file = f'{gen_task_file_dir}task.json' # "A json file providing the instructions and other information required for dataset generation. "
+                args.gen_output_dir = args.working_sample_dir[im] # "The output directory to which the generated dataset is saved"
+                args.gen_model_name = args.llms[im] # "The pretrained model to use for dataset generation. Currently, only variants of GPT2 are supported."
+                args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
+
+                # prepare few-shot prompt
+                few_shot_samples = ''
+                for i_sample in range(args.gen_few_shot_k):
+                    print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
+                    print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
+                    few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}\n'
+                prompt = FEW_SHOT_PROMPT[args.task_name]
+                for key in prompt["labels"].keys():
+                    prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
+                with open(args.gen_task_file, "w") as task_file:
+                    json.dump(prompt, task_file)
+                # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")
+                torch.cuda.empty_cache()
+                print(f'here0-7, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+                
+                # gen_data and write data
+                gen_syn_data_few_shot(args)
+                torch.cuda.empty_cache()
+            # do not perform things now, wait for gen to target number of samples
+            return
+
+
     print("++++++++++++++++finished solving++++++++++++++++++++")
     return best_theta
 
@@ -3138,8 +2711,9 @@ if __name__ == "__main__":
     parser.add_argument('--num_use_samples_outer', default=1000, type=int)
     parser.add_argument('--init_label', default=10, type=int)
     parser.add_argument('--init_theta', default=1, type=float)
-    parser.add_argument('--epoch_converge', default=20, type=int)
+    parser.add_argument('--epoch_converge', default=1, type=int)
     parser.add_argument('--epoch_converge_fully_train', default=5, type=int)
+    parser.add_argument('--epoch_gold_fine_tune', default=1, type=int)
     parser.add_argument('--check_ft_every', default=10, type=int)
     parser.add_argument('--threshold', default=0.9, type=float)
     parser.add_argument("--iterative", default=False, action="store_true")
@@ -3162,7 +2736,6 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', default=0, type=int, help='gpu device id')
     parser.add_argument("--small_model_name", type=str, default='distilbert-base-uncased', help="The small Transformer language model to use.")
     parser.add_argument('--mix', action="store_true")
-    parser.add_argument('--mix_to_form_single', action="store_true")
     parser.add_argument('--query_percent', default=0.2, type=float, help='make some of the training samples non-trainable in the next iteraton according to query result')
     parser.add_argument('--drop_percent', default=0.2, type=float, help='make some of the training samples non-trainable in the next iteraton')
     
@@ -3180,6 +2753,15 @@ if __name__ == "__main__":
     parser.add_argument("--fuse_dataset_weight", type=str, default='new', help="['new'(new theta that are equal for all without adjust), 'inheritModelAndSample', 'inheritModel', 'inheritSample', 'Adjust', 'inheritModelAndSampleAdjust', 'inheritModelAdjust', 'inheritSampleAdjust']")
 
     parser.add_argument("--max_input_length", default=512, type=int, help='max input token length for Language Model')
+    parser.add_argument("--steps", type=int, default=1, help="how much steps for constructing the total dataset from all LLMs")
+    parser.add_argument('--num_use_samples_init', default=[2000,2000], nargs='+', type=int)
+    parser.add_argument("--gen_few_shot_k", type=int, default=8, help="how much few shot samples are provided for each few shot prompt")
+    parser.add_argument("--gen_few_shot_pool_size", type=int, default=40, help="how much candidate few shot samples are selected for each few shot prompt")
+    parser.add_argument("--gen_few_shot_ambiguous_ratio", type=float, default=0.5, help="the ratio of ambiguous samples in the candidate pool")
+    parser.add_argument("--gen_batch_size", type=int, default=4, help="The batch size for generation (only if --input_file is not set)")
+    parser.add_argument("--gen_max_length", type=int, default=40, help="The maximum output length for each generated text.")
+    parser.add_argument("--gen_min_length", type=int, default=1, help="The minimum output length for each generated text.")
+    parser.add_argument("--gen_sample_select", type=str, default='influenceCartography', help="['influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography'
 
     # # Required parameters for evaluating synthetic data
     # parser.add_argument("--query_output_dir", type=str, #required=True,
@@ -3228,6 +2810,7 @@ if __name__ == "__main__":
         print(args.llms, args.num_use_samples_inner, args.separate_num_use_samples_inner)
     args.len_LLM = len(args.llms)
     assert args.len_LLM == len(args.num_use_samples_inner), "Must specify the number of inner samples used for every LLM's generated data"
+    args.samples_text = [[]]*args.len_LLM # store the original samples in string format
 
     if args.BETA == 0.0:
         args.adjustable_beta = True
@@ -3237,16 +2820,17 @@ if __name__ == "__main__":
         args.adjustable_beta = False
     
     args.train_ratio = 1.0 - args.test_ratio
+    if 'Easy' in args.gen_sample_select:
+        args.gen_sample_select.replace('Easy','Cartography')
+        args.gen_few_shot_ambiguous_ratio = 0.0
+    elif 'Ambiguous' in args.gen_sample_select:
+        args.gen_sample_select.replace('Ambiguous','Cartography')
+        args.gen_few_shot_ambiguous_ratio = 0.0
     
     randnum = random.random()
     torch.cuda.set_device(args.gpu)  
     args.device = device
     torch.cuda.empty_cache()
-
-    args.accumulate_sampels = [0]
-    for _i in range(args.len_LLM):
-        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.num_use_samples_inner[_i]) 
-    args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
 
     if args.wandb:
         os.system("wandb login --relogin xxxxxx")
@@ -3257,85 +2841,24 @@ if __name__ == "__main__":
     print(f"learning rate: {args.inner_lr}")
     print(f"seed: {args.seed}")
 
+    # prepare STM that does not depends on the dataset vocabulary here
     if 'bert' in args.small_model_name.lower():
-        # print(f"small model is {args.small_model_name}")
-        # init_model = BertForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name])
+        print(f"load tokenizer for bert first")
         args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
-        # print(f"{init_model.parameters()=}, {init_model.bert.parameters()=}")
         # # for param in init_model.base_model.parameters():
         # for param in init_model.bert.parameters():
         #     param.requires_grad = False
     elif 'ernie' in args.small_model_name.lower():
+        print(f"load tokenizer for ernie first")
         args.tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
     # print(f'here2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
-    print('num of use syn samples:{}'.format(args.num_use_samples_inner))
-    if 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
-        train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
-        # args.num_classes = len(torch.unique(train_data[0].label))
-        args.num_classes = 77 if 'worksheet'==args.task_name else len(torch.unique(train_data[0].label))
-        # print(f'here0-0, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-        # print("checking, flush")
-        # assert 1 == 0
-    else: # lstm
-        train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
-        args.num_classes = len(LABEL.vocab.stoi)
-    print(f'num of lable {args.num_classes}')
-    print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-
-    # initialize all the 'local' and 'global' model as the same model parameters
-    if args.small_model_name == 'LSTM':
-        print(f"small model is LSTM RNN")
-        init_model = RNN(len(TEXT.vocab), len(LABEL.vocab.stoi),
-                    EMBEDDING_SIZE, HIDDEN_SIZE, DROPOUT_RATE, LAYER_NUM,
-                    TEXT.vocab.vectors, freeze)
-    elif 'bert' in args.small_model_name.lower():
-        print(f"small model is {args.small_model_name}")
-        init_model = BertForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
-        # args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
-        print(f"{init_model.parameters()=}, {init_model.bert.parameters()=}")
-    elif 'ernie' in args.small_model_name.lower():
-        print(f"small model is {args.small_model_name}")
-        init_model = ErnieForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
-        print(f"{init_model.parameters()=}")
-    else:
-        print(f"small model is {args.small_model_name}")
-        init_model = AutoModelForMaskedLM.from_pretrained(MODEL_PATH[args.small_model_name])
-    print(f'The model has {count_parameters(init_model):,} trainable parameters')
-    # model = [copy.deepcopy(init_model).to(device) for _ in range(args.len_LLM)]
-    # args.fused_model = copy.deepcopy(init_model).to(device)
-    model = [copy.deepcopy(init_model) for _ in range(args.len_LLM)]
-    # model = [copy.deepcopy(init_model)]
-    args.fused_model = copy.deepcopy(init_model)
-
-    print(f'here0-4, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-    # if args.small_model_name == 'LSTM':
-    #     print(f"small model is LSTM RNN")
-    #     model = [RNN(len(TEXT.vocab), len(LABEL.vocab.stoi),
-    #                 EMBEDDING_SIZE, HIDDEN_SIZE, DROPOUT_RATE, LAYER_NUM,
-    #                 TEXT.vocab.vectors, freeze).to(device) for _ in range(args.len_LLM)]
-    # else:
-    #     print(f"small model is {args.small_model_name}")
-    #     model = [AutoModelForMaskedLM.from_pretrained(MODEL_PATH[args.small_model_name]).to(args.device) for _ in range(args.len_LLM)]
-    # print(f'The model has {count_parameters(model[0]):,} trainable parameters')
-    # if args.small_model_name == 'LSTM':
-    #     print(f"small model for fused model is LSTM RNN")
-    #     args.fused_model = RNN(len(TEXT.vocab), len(LABEL.vocab.stoi),
-    #                 EMBEDDING_SIZE, HIDDEN_SIZE, DROPOUT_RATE, LAYER_NUM,
-    #                 TEXT.vocab.vectors, freeze).to(device)
-    # else:
-    #     print(f"small model for fused model is {args.small_model_name}")
-    #     args.fused_model = AutoModelForMaskedLM.from_pretrained(MODEL_PATH[args.small_model_name]).to(args.device)
-    # print(f'The fused model has {count_parameters(model[0]):,} trainable parameters')
-
     loss_func = nn.CrossEntropyLoss()
-    if args.use_test:
-        dev_iter = test_iter
     # args.save_path=os.path.join(args.syn_data_path,f'best_thetas_inner{args.num_use_samples_inner}_outter{args.num_use_samples_outer}')
     args.model_name_sample = f'{args.task_name}/[mix]_{args.llms[0]}_{args.num_use_samples_inner[0]}' if args.mix else f'{args.task_name}/{args.llms[0]}_{args.num_use_samples_inner[0]}'
     for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
         args.model_name_sample += f'__{_model}_{num_samples_inner}'
-    args.save_path=os.path.join(f'results/multi_local{"_mixed" if args.mix_to_form_single else ""}/{args.small_model_name}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
+    args.save_path=os.path.join(f'results/with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_{args.gen_sample_select}/init{args.num_use_samples_init[0]}_steps{args.steps}/{args.small_model_name}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
     args.save_path = f"{args.save_path}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.max_outer_iter}_{args.seed}"
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -3347,47 +2870,183 @@ if __name__ == "__main__":
     log_format = '%(asctime)s [%(levelname)s]: %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                         format=log_format, datefmt='%m/%d %I:%M:%S %p')
-    # if not os.path.exists(f'./logging/{args.model_name_sample}/'):
-    #     os.makedirs(f'./logging/{args.model_name_sample}/')
-    # fh = logging.FileHandler(os.path.join(f'./logging/{args.model_name_sample}/', 'log.txt'))
-    if not os.path.exists(f'./logging/eval_on_real/multi_local{"_mixed" if args.mix_to_form_single else ""}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}/{args.model_name_sample}/'):
-        os.makedirs(f'./logging/eval_on_real/multi_local{"_mixed" if args.mix_to_form_single else ""}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}/{args.model_name_sample}/')
-    fh = logging.FileHandler(os.path.join(f'./logging/eval_on_real/multi_local{"_mixed" if args.mix_to_form_single else ""}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}/{args.model_name_sample}/', f'log_{args.BETA}_{args.seed}.txt'))
-    print("logging file path="+f'./logging/eval_on_real/multi_local{"_mixed" if args.mix_to_form_single else ""}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}/{args.model_name_sample}/')
+    if not os.path.exists(f'./logging/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
+        os.makedirs(f'./logging/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
+    fh = logging.FileHandler(os.path.join(f'./logging/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
-    args.result_file_path = f'./results/eval_on_real/multi_local{"_mixed" if args.mix_to_form_single else ""}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}/{args.model_name_sample}/{args.seed}'
+    args.result_file_path = f'./results/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
     if not os.path.exists(args.result_file_path):
         os.makedirs(args.result_file_path)
 
-    if 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
-        if args.mix_to_form_single:
-            print(f'use {[len(train_iter[i].dataset.idx) for i in range(1)]} train data...')
-            print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(1)]} train data...')
-            print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(1)]} train data...')
-            args.len_LLM = 1
+    if args.steps == 0:
+        args.sample_each_llm = args.num_use_samples_inner
+        args.sample_each_llm = torch.tensor(args.sample_each_llm).to(args.device)
+
+        print('num of use syn samples:{}'.format(args.num_use_samples_inner))
+        if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+            train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
+            args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data[0].label))
+        else: # lstm
+            train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
+            args.num_classes = len(LABEL.vocab.stoi)
+        print(f'num of lable {args.num_classes}')
+        print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+        if args.use_test:
+            dev_iter = test_iter
+
+        args.accumulate_sampels = [0]
+        for _i in range(args.len_LLM):
+            args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.num_use_samples_inner[_i])
+        args.accumulate_samples.append(args.accumulate_sampels[-1]+len(gold_data.text))
+        args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
+
+        # initialize all the 'local' and 'global' model as the same model parameters
+        if args.small_model_name == 'LSTM':
+            print(f"small model is LSTM RNN")
+            init_model = RNN(len(TEXT.vocab), len(LABEL.vocab.stoi),
+                        EMBEDDING_SIZE, HIDDEN_SIZE, DROPOUT_RATE, LAYER_NUM,
+                        TEXT.vocab.vectors, freeze)
+        elif 'bert' in args.small_model_name.lower():
+            print(f"small model is {args.small_model_name}")
+            init_model = BertForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
+            # args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
+            print(f"{init_model.parameters()=}, {init_model.bert.parameters()=}")
+        elif 'ernie' in args.small_model_name.lower():
+            print(f"small model is {args.small_model_name}")
+            init_model = ErnieForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
+            print(f"{init_model.parameters()=}")
         else:
+            print(f"small model is {args.small_model_name}")
+            init_model = AutoModelForMaskedLM.from_pretrained(MODEL_PATH[args.small_model_name])
+        print(f'The model has {count_parameters(init_model):,} trainable parameters')
+        # model = [copy.deepcopy(init_model).to(device) for _ in range(args.len_LLM)]
+        # args.fused_model = copy.deepcopy(init_model).to(device)
+        model = [copy.deepcopy(init_model) for _ in range(args.len_LLM+1)]
+        args.fused_model = copy.deepcopy(init_model)
+        print(f'here0-4, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+
+        if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             print(f'use {[len(train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
             print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
             print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
-        # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
-        # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
-        print(f'use {len(dev_iter.dataset.idx)} dev data...')
-        print(f'use {len(test_iter.dataset.idx)} test data...')
-    elif args.small_model_name == 'LSTM':
-        print(f'use {[len(train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
-        print(f'use {[len(small_train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
-        print(f'use {[len(small_valid_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
-        # print(f'use {[len(train_data[i].examples) for i in range(args.len_LLM)]} in train_data')
-        # print(f'use {[len(small_train_data[i].examples) for i in range(args.len_LLM)]} in small_train_data')
-        print(f'use {len(dev_iter.dataset.examples)} dev data...')
-        print(f'use {len(test_iter.dataset.examples)} test data...')
-    else:
-        print(f"specital model, what is it ? {args.small_model_name}")
-    print(f'save path is {args.save_path}')
-    # best_theta = solve(model, train_iter, train_iter_backward, dev_iter, test_iter)
-    best_theta = solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_iter_backward, dev_iter, test_iter)
-    # best_theta = solve_with_model_importance_estimation(args, model, train_data, test_iter)
-    torch.save(best_theta, f"{args.save_path}/best_thetas.pth")
-    print(f"best thetas saved to {args.save_path}/best_thetas.pth")
-    print(f"best thetas {best_theta}")
+            # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
+            # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
+            print(f'use {len(dev_iter.dataset.idx)} dev data...')
+            print(f'use {len(gold_iter.dataset.idx)} gold data...')
+            print(f'use {len(test_iter.dataset.idx)} test data...')
+        elif args.small_model_name == 'LSTM':
+            print(f'use {[len(train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+            print(f'use {[len(small_train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+            print(f'use {[len(small_valid_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+            # print(f'use {[len(train_data[i].examples) for i in range(args.len_LLM)]} in train_data')
+            # print(f'use {[len(small_train_data[i].examples) for i in range(args.len_LLM)]} in small_train_data')
+            print(f'use {len(dev_iter.dataset.examples)} dev data...')
+            print(f'use {len(test_iter.dataset.examples)} test data...')
+        else:
+            print(f"specital model, what is it ? {args.small_model_name}")
+        print(f'save path is {args.save_path}')
+        # best_theta = solve(model, train_iter, train_iter_backward, dev_iter, test_iter)
+        best_theta = solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_iter_backward, dev_iter, gold_iter, test_iter)
+        # best_theta = solve_with_model_importance_estimation(args, model, train_data, test_iter)
+        torch.save(best_theta, f"{args.save_path}/best_thetas.pth")
+        print(f"best thetas saved to {args.save_path}/best_thetas.pth")
+        print(f"best thetas {best_theta}")
+    
+    else: # args.steps >= 1
+        print(f"{args.steps} steps are taken to construct the total dataset")
+        # get the schedular for each sample
+        # total_samples = sum(args.num_use_samples_inner)
+        args.num_use_samples_each_step_extend = [(args.num_use_samples_inner[im]-args.num_use_samples_init[im])//args.steps for im in range(args.len_LLM)]
+        args.init_sample_path = []
+        args.working_sample_dir = []
+        # args.working_sample_path = []
+        args.working_prompt_dir = []
+        # for im in range(args.len_LLM):
+        #     if os.path.exists(args.working_sample_dir[im]):
+
+        for im in range(args.len_LLM):
+            args.init_sample_path.append(f'data_accumulate_start/{args.task_name}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}/train.jsonl')
+            args.working_sample_dir.append(f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.num_use_samples_each_step_extend[im]}/')
+            if not os.path.exists(args.working_sample_dir[im]):
+                os.makedirs(args.working_sample_dir[im])
+            # args.working_sample_path.append(f'{args.working_sample_dir[im]}train.jsonl')
+            args.working_prompt_dir.append(f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.num_use_samples_each_step_extend[im]}/')
+            for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
+                prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
+        
+        args.num_use_samples_init = torch.tensor(args.num_use_samples_init,dtype=torch.long).to(args.device)
+        args.num_use_samples_each_step_extend = torch.tensor(args.num_use_samples_each_step_extend,dtype=torch.long).to(args.device)
+        for i_step in range(args.steps+1):
+            args.i_step = i_step
+            args.sample_each_llm = args.num_use_samples_init + i_step * args.num_use_samples_each_step_extend
+            args.sample_each_llm = torch.tensor(args.sample_each_llm).to(args.device)
+            print('num of use syn samples in total: {}'.format(sum(args.num_use_samples_inner)))
+            print(f'num of current syn samples for step {i_step}: {args.sample_each_llm}')
+
+            if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
+                args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data[0].label))
+            else: # lstm
+                train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
+                args.num_classes = len(LABEL.vocab.stoi)
+            print(f'num of lable {args.num_classes}')
+            # print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            if args.use_test:
+                dev_iter = test_iter
+
+            args.accumulate_sampels = [0]
+            for _i in range(args.len_LLM):
+                args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.sample_each_llm[_i])
+            args.accumulate_sampels.append(args.accumulate_sampels[-1]+len(gold_data.text))
+            args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
+
+            # initialize all the 'local' and 'global' model as the same model parameters
+            if args.small_model_name == 'LSTM':
+                print(f"small model is LSTM RNN")
+                init_model = RNN(len(TEXT.vocab), len(LABEL.vocab.stoi),
+                            EMBEDDING_SIZE, HIDDEN_SIZE, DROPOUT_RATE, LAYER_NUM,
+                            TEXT.vocab.vectors, freeze)
+            elif 'bert' in args.small_model_name.lower():
+                print(f"small model is {args.small_model_name}")
+                init_model = BertForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
+                # args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
+                print(f"{init_model.parameters()=}, {init_model.bert.parameters()=}")
+            elif 'ernie' in args.small_model_name.lower():
+                print(f"small model is {args.small_model_name}")
+                init_model = ErnieForSequenceClassification.from_pretrained(MODEL_PATH[args.small_model_name], num_labels=args.num_classes)
+                print(f"{init_model.parameters()=}")
+            else:
+                print(f"small model is {args.small_model_name}")
+                init_model = AutoModelForMaskedLM.from_pretrained(MODEL_PATH[args.small_model_name])
+            print(f'The model has {count_parameters(init_model):,} trainable parameters')
+            model = [copy.deepcopy(init_model) for _ in range(args.len_LLM+1)]
+            args.fused_model = copy.deepcopy(init_model)
+            # print(f'here0-4, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+
+            if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                print(f'use {[len(train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
+                print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
+                print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
+                # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
+                # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
+                print(f'use {len(dev_iter.dataset.idx)} dev data...')
+                print(f'use {len(gold_iter.dataset.idx)} gold data...')
+                print(f'use {len(test_iter.dataset.idx)} test data...')
+            elif args.small_model_name == 'LSTM':
+                print(f'use {[len(train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+                print(f'use {[len(small_train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+                print(f'use {[len(small_valid_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+                # print(f'use {[len(train_data[i].examples) for i in range(args.len_LLM)]} in train_data')
+                # print(f'use {[len(small_train_data[i].examples) for i in range(args.len_LLM)]} in small_train_data')
+                print(f'use {len(dev_iter.dataset.examples)} dev data...')
+                print(f'use {len(test_iter.dataset.examples)} test data...')
+            else:
+                print(f"specital model, what is it ? {args.small_model_name}")
+            print(f'save path is {args.save_path}')
+            # best_theta = solve(model, train_iter, train_iter_backward, dev_iter, test_iter)
+            best_theta = solve_with_local_cross_validation(args, model, train_data, small_train_data, small_valid_data, train_iter_backward, dev_iter, gold_iter, test_iter, perform_few_shot_gen=(not i_step==args.steps))
+            # best_theta = solve_with_model_importance_estimation(args, model, train_data, test_iter)
+            torch.save(best_theta, f"{args.save_path}/best_thetas.pth")
+            print(f"best thetas saved to {args.save_path}/best_thetas.pth")
+            print(f"best thetas {best_theta}")

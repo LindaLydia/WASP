@@ -14,6 +14,7 @@ from torchtext.legacy import data
 # from torchtext import data
 
 from utils.bert_dataset import *
+from utils.constant import SMALL_MODEL_WITH_TOKENIZER
 
 
 def kd_label(args, mode_list, dataset_list, model_importance):
@@ -39,7 +40,7 @@ def kd_label(args, mode_list, dataset_list, model_importance):
             repeat=False,
             shuffle=False,
         )
-    elif 'bert' in args.small_model_name:
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         _id = 0
         total_data = TokenizedDataset(
             file_path=(''),
@@ -151,7 +152,7 @@ def kd_label_entropy(args, mode_list, dataset_list, model_importance):
             repeat=False,
             shuffle=False,
         )
-    elif 'bert' in args.small_model_name:
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         _id = 0
         total_data = TokenizedDataset(
             file_path=(''),
@@ -260,7 +261,7 @@ def kd_label_entropy(args, mode_list, dataset_list, model_importance):
         print(total_data[-3].text, total_data[-3].label)
         print(total_data[-2].text, total_data[-2].label)
         print(total_data[-1].text, total_data[-1].label)
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         print(total_data.text[0], total_data.label[0])
         print(total_data.text[1], total_data.label[1])
         print(total_data.text[2], total_data.label[2])
@@ -302,7 +303,7 @@ def kd_label_aware(args, mode_list, dataset_list, model_importance, high_row, hi
             repeat=False,
             shuffle=False,
         )
-    elif 'bert' in args.small_model_name:
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         _id = 0
         total_data = TokenizedDataset(
             file_path=(''),
@@ -403,7 +404,8 @@ def kd_label_entropy_aware(args, mode_list, dataset_list, model_importance, high
             repeat=False,
             shuffle=False,
         )
-    elif 'bert' in args.small_model_name:
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+        print(f"{len(dataset_list)=}, {args.len_LLM+1}")
         _id = 0
         total_data = TokenizedDataset(
             file_path=(''),
@@ -413,7 +415,8 @@ def kd_label_entropy_aware(args, mode_list, dataset_list, model_importance, high
         total_data.attention_mask = [] # clear all the samples
         total_data.label = [] # clear all the samples
         total_data.idx = [] # clear all the samples
-        for row in range(args.len_LLM):
+        total_data.is_syn = [] # clear all the samples
+        for row in range(len(dataset_list)):
             accumulate_sampels.append(accumulate_sampels[-1]+len(dataset_list[row].idx)) 
             for column in range(len(dataset_list[row].idx)):
                 total_data.text += [dataset_list[row].text[column]]
@@ -421,6 +424,7 @@ def kd_label_entropy_aware(args, mode_list, dataset_list, model_importance, high
                 total_data.attention_mask += [dataset_list[row].attention_mask[column]]
                 total_data.label += [dataset_list[row].label[column]]
                 total_data.idx += [_id]
+                total_data.is_syn += [dataset_list[row].is_syn[column]]
                 _id += 1
         accumulate_sampels = torch.tensor(accumulate_sampels, dtype=torch.long).to(args.device)
         data_iter = DataLoader(total_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
@@ -428,10 +432,10 @@ def kd_label_entropy_aware(args, mode_list, dataset_list, model_importance, high
     low_row = torch.tensor(low_row, dtype=torch.long).to(args.device)
     low_colum = torch.tensor(low_colum, dtype=torch.long).to(args.device)
 
-    logits_per_sample_model = torch.zeros((len(mode_list), len(total_data), args.num_classes), dtype=torch.float32).to(args.device)
-    loss_per_sample_model = torch.zeros((len(mode_list), len(total_data),), dtype=torch.float32).to(args.device)
-    error_per_sample_model = torch.zeros((len(mode_list), len(total_data),), dtype=torch.float32).to(args.device)
-    entropy_per_sample_model = torch.zeros((len(mode_list), len(total_data),), dtype=torch.float32).to(args.device)
+    logits_per_sample_model = torch.zeros((len(data_iter), len(total_data), args.num_classes), dtype=torch.float32).to(args.device)
+    loss_per_sample_model = torch.zeros((len(data_iter), len(total_data),), dtype=torch.float32).to(args.device)
+    error_per_sample_model = torch.zeros((len(data_iter), len(total_data),), dtype=torch.float32).to(args.device)
+    entropy_per_sample_model = torch.zeros((len(data_iter), len(total_data),), dtype=torch.float32).to(args.device)
     # correctness_per_sample_model = torch.zeros((len(total_data),), dtype=torch.bool).to(args.device)
     # prediction_per_sample_model = torch.zeros((len(total_data),), dtype=torch.long).to(args.device)
     logits_per_sample = torch.zeros((len(total_data), args.num_classes), dtype=torch.float32).to(args.device)
@@ -492,6 +496,12 @@ def kd_label_entropy_aware(args, mode_list, dataset_list, model_importance, high
     model.to("cpu")
     _entropy_per_sample_model_save = copy.deepcopy(entropy_per_sample_model)
 
+    # print(f"{accumulate_sampels=}")
+    # print(f"{low_row=}")
+    # print(f"{accumulate_sampels[low_row]+low_colum=}")
+    # print(f'{logits_per_sample_model.shape=}')
+    # print(f'......')
+    # assert 1 == 0
     logits_per_sample_s = logits_per_sample_model[low_row, accumulate_sampels[low_row]+low_colum]
     loss_per_sample_s = loss_per_sample_model[low_row, accumulate_sampels[low_row]+low_colum]
     error_per_sample_s = error_per_sample_model[low_row, accumulate_sampels[low_row]+low_colum]
@@ -508,7 +518,7 @@ def kd_label_entropy_aware(args, mode_list, dataset_list, model_importance, high
         print(total_data[-3].text, total_data[-3].label)
         print(total_data[-2].text, total_data[-2].label)
         print(total_data[-1].text, total_data[-1].label)
-    elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         print(total_data.text[0], total_data.label[0])
         print(total_data.text[1], total_data.label[1])
         print(total_data.text[2], total_data.label[2])
@@ -548,7 +558,7 @@ def kd_label_entropy_aware(args, mode_list, dataset_list, model_importance, high
         print(f"total kd: {logits_per_sample[accumulate_sampels[r]+c]}, none-seen kd: {logits_per_sample_ns[accumulate_sampels[r]+c]}, seen kd: {logits_per_sample_s[i]},")
         if args.small_model_name.upper() == 'LSTM':
             print(f"related text and label:", total_data[accumulate_sampels[r]+c].text, total_data[accumulate_sampels[r]+c].label)
-        elif 'bert' in args.small_model_name.lower() or 'ernie' in args.small_model_name.lower():
+        elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             print(f"related text and label:", total_data.text[accumulate_sampels[r]+c], total_data.label[accumulate_sampels[r]+c])
         if i == 16:
             break
@@ -571,7 +581,7 @@ def kd_label_dataset(args, mode_list, dataset, model_importance):
             shuffle=False,
         )
         print(len(data_iter), len(dataset))
-    elif 'bert' in args.small_model_name:
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
         data_iter = DataLoader(dataset, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
 
     logits_per_sample = torch.zeros((len(dataset), args.num_classes), dtype=torch.float32).to(args.device)
