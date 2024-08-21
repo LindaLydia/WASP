@@ -1,12 +1,12 @@
 # -*- coding:utf8 -*-
-# try:
-#     from torchtext.legacy.data import Iterator, BucketIterator
-#     from torchtext.legacy import data
-# except ImportError:
-#     from torchtext.data import Iterator, BucketIterator
-#     from torchtext import data
-from torchtext.legacy.data import Iterator, BucketIterator
-from torchtext.legacy import data
+try:
+    from torchtext.legacy.data import Iterator, BucketIterator
+    from torchtext.legacy import data
+except:
+    from torchtext.data import Iterator, BucketIterator
+    from torchtext import data
+# from torchtext.legacy.data import Iterator, BucketIterator
+# from torchtext.legacy import data
 import copy
 import torch
 import torch.nn as nn
@@ -409,8 +409,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         tokenizer=args.tokenizer,
         device=args.device,
         max_length=args.max_input_length,
-        max_sample=((args.gold_data_num+args.num_classes-1)//args.num_classes)*args.num_classes,
-        # max_sample=-1 # use all that is provided in the dataset file
+        max_sample=(args.gold_data_num if args.gold_data_num < 0 else ((args.gold_data_num+args.num_classes-1)//args.num_classes)*args.num_classes),
+        # max_sample=-1, # use all that is provided in the dataset file
         is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
         small_dataset_shuffle=True,
     )
@@ -2695,7 +2695,7 @@ if __name__ == "__main__":
     parser.add_argument('--runs_name', default="ours", type=str)
     parser.add_argument('--scheduler', default="cosine", type=str)
     parser.add_argument('--gold_data_path', default=None, type=str)
-    parser.add_argument('--gold_data_num', default=100, type=int, help='number of golden data available for training')
+    parser.add_argument('--gold_data_num', default=-1, type=int, help='number of golden data available for training')
     parser.add_argument('--syn_data_path', default='data_new/', type=str)
     parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
     # parser.add_argument('--llm_1', default=None, type=str)

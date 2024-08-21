@@ -140,7 +140,7 @@ def gen_syn_data_few_shot(args):
             # dataset.save_to_disk(args.gen_output_dir)
             inputs = [i[C_KEY] for i in read_jsonl(args.gen_input_file)]
             random.shuffle(inputs)
-            inputs = inputs[:int(args.gen_num_entries_per_input*3*(2 if 'glm' in args.gen_model_name else 1))]
+            inputs = inputs[:int(args.gen_num_entries_per_input*3*(2 if 'glm' in args.gen_model_name else (0.03 if (args.num_classes>30) else 1)))]
             dataset = generator.generate_answer_ner(inputs)
             # dataset.save_to_disk(args.output_dir)
             # inputs = datasets.load_from_disk(args.input_file)
@@ -185,7 +185,7 @@ def gen_syn_data_few_shot(args):
                 if 'nli' in args.task_name:
                     inputs = [i[C_KEY] for i in read_jsonl(args.gen_input_file)]
                     random.shuffle(inputs)
-                    inputs = inputs[:int(args.gen_num_entries_per_input*args.num_classes*(1 if 'glm' in args.gen_model_name else 0.5))]
+                    inputs = inputs[:int(args.gen_num_entries_per_input*args.num_classes*(1 if 'glm' in args.gen_model_name else (0.03 if (args.num_classes>30) else 0.5)))]
             elif is_stage_two and processor.sentence2_key is not None:
                 logging.info("Use condition c from dataset")
                 inputs = processor.dataset[processor.train_key][processor.sentence1_key]
@@ -197,6 +197,7 @@ def gen_syn_data_few_shot(args):
             outputs = generator.generate_dataset(inputs, num_entries_per_input=(1 if 'nli' in args.task_name else args.gen_num_entries_per_input),
                                                  batch_size=args.gen_batch_size, log_every=args.gen_log_every, task_name=args.task_name)
 
+            logging.info(f"Dataset generation complete, dataset contains {len(outputs)} entries before truncation")
             # assert len(outputs) >= args.gen_num_entries_per_input, f"Error, requiring {args.gen_num_entries_per_input} samples, but only generated {len(outputs)} samples"
             while len(outputs) < args.gen_num_entries_per_input:
                 outputs = outputs + outputs[:min(len(outputs), args.gen_num_entries_per_input-len(outputs))]

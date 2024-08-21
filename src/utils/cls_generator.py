@@ -29,7 +29,7 @@ import re
 from tasks import Processor
 from .basic_utils import save_jsonl
 from .datasets import GeneratedDataDataset
-from .constant import PROMPTS
+from .constant import PROMPTS, TASK_NEED_SYN
 
 PLACEHOLDER_C = "<C>"
 PLACEHOLDER_X = "<X>"
@@ -546,7 +546,10 @@ def process_output(input_text: Union[str, int], output_text: str, label: str, ge
         else:
             c = output_text
             x = None
-        return {C_KEY: c, X_KEY: x, Y_KEY: float(label) if task_name == "stsb" else int(label)}
+        if task_name in TASK_NEED_SYN:
+            return {C_KEY: c, X_KEY: x, Y_KEY: float(label) if task_name == "stsb" else int(label), 'is_syn': True}
+        else:
+            return {C_KEY: c, X_KEY: x, Y_KEY: float(label) if task_name == "stsb" else int(label)}
     return None
 
 

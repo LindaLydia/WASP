@@ -9,8 +9,12 @@ import random
 import torch
 import torch.nn.functional as F
 from torch.optim import Adam,SGD
-from torchtext.legacy.data import Iterator, BucketIterator
-from torchtext.legacy import data
+try:
+    from torchtext.legacy.data import Iterator, BucketIterator
+    from torchtext.legacy import data
+except:
+    from torchtext.data import Iterator, BucketIterator
+    from torchtext import data
 from bilevel_tools.meta import MetaSGD
 from bilevel_tools.tbtools import AverageMeter
 import bilevel_tools.loss_utils as loss_utils

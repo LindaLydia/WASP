@@ -25,6 +25,8 @@ MODEL_PATH = {
 
 SMALL_MODEL_WITH_TOKENIZER = ['bert', 'ernie']
 
+TASK_NEED_SYN = ['worksheet']
+
 # PROMPTS = {
 #     'human_speaking': "\nHuman:",
 #     'ai_speaking': "\nAI:",

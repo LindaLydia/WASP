@@ -8,10 +8,12 @@ from bilevel_tools.meta import MetaSGD
 from bilevel_tools.tbtools import AverageMeter
 import torch.nn.functional as F
 
-from torchtext.legacy.data import Iterator, BucketIterator
-from torchtext.legacy import data
-# from torchtext.data import Iterator, BucketIterator
-# from torchtext import data
+try:
+    from torchtext.legacy.data import Iterator, BucketIterator
+    from torchtext.legacy import data
+except:
+    from torchtext.data import Iterator, BucketIterator
+    from torchtext import data
 
 from utils.bert_dataset import *
 from utils.constant import SMALL_MODEL_WITH_TOKENIZER

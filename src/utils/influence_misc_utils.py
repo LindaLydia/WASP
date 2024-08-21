@@ -19,8 +19,12 @@ from transformers import (
     DataCollator,
     default_data_collator)
 from datasets import Dataset
-from torchtext.legacy.data import Iterator, BucketIterator
-from torchtext.legacy import data
+try:
+    from torchtext.legacy.data import Iterator, BucketIterator
+    from torchtext.legacy import data
+except:
+    from torchtext.data import Iterator, BucketIterator
+    from torchtext import data
 
 from utils import influence_model_utils
 from utils.bert_dataset import *
