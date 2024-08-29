@@ -1336,3 +1336,5 @@ def model_pred_change_after_gold(args, model_list, model_list_after_gold, datase
     print(f"{loss_per_sample_change[0].shape=}, {error_per_sample_change[0].shape=}, {logits_per_sample_change[0].shape=}, {len(logits_per_sample_change)=}")
 
     return loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, logits_per_sample_change
+
+
