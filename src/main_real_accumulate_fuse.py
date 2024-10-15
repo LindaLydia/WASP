@@ -473,7 +473,11 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         )
     else:
         if args.subset_outer: # currently use this one
-            indices = np.random.choice(list(range(args.sample_each_llm[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
+            print(f"{args.sample_each_llm[-1]=}")
+            if num_use_samples_outer > 0:
+                indices = np.random.choice(list(range(args.sample_each_llm[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
+            else:
+                indices = np.asarray([])
             print(f"[debug] len(train_data.ids)={len(train_data.ids)}")
             data_sample_list = []
             dev_data = TokenizedDataset(
