@@ -19,6 +19,7 @@ import torch
 import torch.nn as nn
 from transformers import GenerationConfig
 from transformers import LogitsProcessorList, LogitsWarper, PreTrainedTokenizer, LogitsProcessor
+from transformers import BitsAndBytesConfig
 from transformers import GPT2LMHeadModel, AutoModelForCausalLM, LlamaForCausalLM, AutoModelForSeq2SeqLM, T5ForConditionalGeneration, OPTForCausalLM, AutoModel
 from transformers import GPT2Tokenizer, AutoTokenizer, LlamaTokenizer, LlamaTokenizerFast, T5Tokenizer
 try:
@@ -1283,14 +1284,14 @@ class LLMWrapper():
         #     self._model.to(device)
         print(f'[debug] model_name={model_name}')
         if 'gpt2' in model_name:
-            self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name])
+            self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], torch_dtype=torch.float16)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             self._tokenizer = GPT2Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
             if use_cuda:
                 self._model.parallelize()
             # self._model.to('cuda:1')
         elif 'llama' in model_name or 'vicuna' in model_name:
-            self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             print(self._model.config)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             if not 'llama-3' in model_name:
@@ -1301,7 +1302,8 @@ class LLMWrapper():
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
             print("load 8-bit model=True")
             self.max_position_embeddings = 1024
-            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", llm_int8_enable_fp32_cpu_offload=True)
+            quantization_config = BitsAndBytesConfig(load_in_8bit_fp32_cpu_offload=True)
+            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
             self._tokenizer = T5Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings)
         # elif 'vicuna' in model_name:
         #     self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name])
@@ -1309,17 +1311,17 @@ class LLMWrapper():
         #     self._model = SelfDebiasingAutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
         # OPTForCausalLM
         elif 'opt' in model_name:
-            self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             print(self._model.config)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
         elif 'openchat' in model_name:
             self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name])
             print(type(self._tokenizer))
-            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             print(type(self._model))
         elif 'chatglm' in model_name:
-            self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True)
+            self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, torch_dtype=torch.float16)
             # if not 'base' in model_name
             #     self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True)
             # else:
@@ -1329,7 +1331,7 @@ class LLMWrapper():
             if use_cuda:
                 self._model.cuda()
         elif 'glm' in model_name:
-            self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True)
+            self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, torch_dtype=torch.float16)
             self.max_position_embeddings = 1024
             self._tokenizer = GLMGPT2Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length)
             if use_cuda:
@@ -1339,7 +1341,7 @@ class LLMWrapper():
             self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name])
             print(self._tokenizer)
             print('----------------')
-            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
 
         print(f"[debug] debiasing model on device {self._model.device}")
         print(f"[debug] debiasing model config {self._model.config}")
@@ -1387,7 +1389,7 @@ class LLMWrapper():
         output_ids = self._model.generate(**inputs, min_length=min_length, max_length=max_length,
                                           num_return_sequences=num_samples, **kwargs)
         # print(f"in generation.py, (1) {output_ids=}")
-        if 'nli' in task_name and 't5' in self.model_name:
+        if 't5' in self.model_name:
             output_ids = output_ids[:regular_batch_size, :]
         else:
             output_ids = output_ids[:regular_batch_size, seq_len:]
@@ -1407,7 +1409,7 @@ class SimpleLLM():
         self.model_name = model_name
         self._device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
         if 'gpt2' in model_name:
-            self._model = GPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = GPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             print(f"{self.max_position_embeddings=}")
             self._tokenizer = GPT2Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.query_max_length, padding_side='left')
@@ -1415,7 +1417,7 @@ class SimpleLLM():
             #     self._model.parallelize()
             # self._model.to('cuda:1')
         elif 'llama' in model_name or 'vicuna' in model_name:
-            self._model = LlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = LlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             print(self._model.config)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             print(f"{self.max_position_embeddings=}")
@@ -1426,14 +1428,15 @@ class SimpleLLM():
         elif 't5' in model_name:
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
             print("load 8-bit model=True")
-            self._model = T5ForConditionalGeneration.from_pretrained(MODEL_PATH[model_name], device_map="auto", llm_int8_enable_fp32_cpu_offload=True)
+            quantization_config = BitsAndBytesConfig(load_in_8bit_fp32_cpu_offload=True)
+            self._model = T5ForConditionalGeneration.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config)
             print(self._model.config)
             # self.max_position_embeddings = self._model.config.n_positions
             self.max_position_embeddings = 1024
             # print(f"{self.max_position_embeddings=}")
             self._tokenizer = T5Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings) #-args.query_max_length
         elif 'opt' in model_name: # decoder-only
-            self._model = OPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = OPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             print(self._model.config)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             # print(f"{self.max_position_embeddings=}")
@@ -1446,7 +1449,7 @@ class SimpleLLM():
         #     print(f"{self.max_position_embeddings=}")
         #     self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.query_max_length)
         elif 'chatglm' in model_name:
-            self._model = ChatGLMForConditionalGeneration.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True)
+            self._model = ChatGLMForConditionalGeneration.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, torch_dtype=torch.float16)
             # if not 'base' in model_name
             #     self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True)
             # else:
@@ -1458,7 +1461,7 @@ class SimpleLLM():
             if use_cuda:
                 self._model.cuda()
         elif 'glm' in model_name:
-            self._model = GLMForConditionalGeneration.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True)
+            self._model = GLMForConditionalGeneration.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, torch_dtype=torch.float16)
             print(self._model.config)
             self.max_position_embeddings = 1024
             print(f"{self.max_position_embeddings=}")
@@ -1466,7 +1469,7 @@ class SimpleLLM():
             if use_cuda:
                 self._model.cuda()
         else:
-            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name])
         
         # print(f"[debug] simple LLM on device {self._model.device}")

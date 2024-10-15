@@ -49,6 +49,7 @@ from utils.kd_functions import kd_label, kd_label_iter, kd_label_dataset, kd_lab
 from utils.mlp import *
 from utils.influence_utils import run_full_influence_functions
 from llm_query import gen_evaluation, gen_syn_data_few_shot
+from GPT_query.few_shot_gen import gen_syn_data_few_shot_gpt_api
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -165,7 +166,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.num_use_samples_each_step_extend[i]}/'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/'
         train_data, _ = data.TabularDataset.splits(
             path=train_data_path,
             train='train.jsonl',
@@ -235,7 +236,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
         dev_data = data.Dataset(dev_data.examples[:num_use_samples_outer], dev_data.fields)
     else:
         if args.subset_outer: # currently use this one
-            indices = np.random.choice(list(range(args.sample_each_llm[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
+            indices = np.random.choice(list(range(min(args.sample_each_llm))), int(num_use_samples_outer//args.len_LLM), replace=False)
             print(f"[debug] len(train_data.examples)={len(train_data.examples)}")
             data_sample_list = []
             for i in range(args.len_LLM):
@@ -344,7 +345,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/train.jsonl') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.num_use_samples_each_step_extend[i]}/train.jsonl'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/train.jsonl'
         train_data = TokenizedDataset(
             file_path=train_data_path,
             text_column='C',
@@ -396,12 +397,12 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         small_valid_data_list.append(small_valid_data)
         # ############## separate as train and test ##############
         
-        # # save original text of small train dataset
-        # args.samples_text[i] = [copy.deepcopy(text) for text in small_train_data.text]
-        # print(f"[debug] sample_text has length {len(args.samples_text[i])}")
         # save original text of small train dataset
-        args.samples_text[i] = [copy.deepcopy(text) for text in train_data.text]
+        args.samples_text[i] = [copy.deepcopy(text) for text in small_train_data.text]
         print(f"[debug] sample_text has length {len(args.samples_text[i])}")
+        # # save original text of small train dataset
+        # args.samples_text[i] = [copy.deepcopy(text) for text in train_data.text]
+        # print(f"[debug] sample_text has length {len(args.samples_text[i])}")
 
     args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data_list[0].label))
 
@@ -478,7 +479,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         )
     else:
         if args.subset_outer: # currently use this one
-            indices = np.random.choice(list(range(args.sample_each_llm[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
+            indices = np.random.choice(list(range(min(args.sample_each_llm))), int(num_use_samples_outer//args.len_LLM), replace=False)
             print(f"[debug] len(train_data.ids)={len(train_data.ids)}")
             data_sample_list = []
             dev_data = TokenizedDataset(
@@ -2271,7 +2272,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             #     for im in range(args.len_LLM):
             #         confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
             # print(f"{confidence_score=}, {variability_score=}")
-            # top_ambiguous_easy_to_learn_idx = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
+            # top_ambiguous_easy_to_learn_idx, idx_in_total_fuse_data = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
             # logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
             # print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             # if 'influence' in args.gen_sample_select:
@@ -2346,32 +2347,59 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             # # ########################### calculate influence score for top ambiguous and top easy-to-learn ###########################
 
             # ########################### use samples that are the nearest to real images ###########################
-            # variability-based sample categorization
-            if 'Flip' in args.fuse_dataset_sample_selection:
-                new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
-                for im in range(args.len_LLM):
-                    confidence_score[im], variability_score[im] = run_divergence_calculation(args, new_current_outer_iter_trained_more_steps_model, new_small_train_data[im])
-            else:
-                total_valid_data = merge_all_dataset(args, small_valid_data)
-                for im in range(args.len_LLM):
-                    confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
-            print(f"{confidence_score=}, {variability_score=}")
-            top_ambiguous_easy_to_learn_idx = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
-            logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
-            print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            selected_indices = None
+            if 'Cartography' in args.gen_sample_select:
+                # variability-based sample categorization
+                if 'Flip' in args.fuse_dataset_sample_selection:
+                    new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
+                    for im in range(args.len_LLM):
+                        confidence_score[im], variability_score[im] = run_divergence_calculation(args, new_current_outer_iter_trained_more_steps_model, new_small_train_data[im])
+                else:
+                    total_valid_data = merge_all_dataset(args, small_valid_data)
+                    for im in range(args.len_LLM):
+                        confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
+                print(f"{confidence_score=}, {variability_score=}")
+                top_ambiguous_easy_to_learn_idx, selected_indices = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
+                logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
+                print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+
             # distance-based voting
             if 'Flip' in args.fuse_dataset_sample_selection:
-                prompt_samples_idx, nearest_sample_voting = find_nearest_syn_samples(args, new_train_data, gold_loader, args.gen_few_shot_k)
+                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
             else:
-                prompt_samples_idx, nearest_sample_voting = find_nearest_syn_samples(args, train_data, gold_loader, args.gen_few_shot_k)
+                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
             print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             print(f"{prompt_samples_idx=}") # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
             logging.info(f"{prompt_samples_idx=}")
             logging.info(f"{nearest_sample_voting=}")
+
+            if 'Cartography' in args.gen_sample_select:
+                confidence_score = torch.cat([torch.tensor(_c) for _c in confidence_score],dim=0)
+                variability_score = torch.cat([torch.tensor(_v) for _v in variability_score],dim=0)
+                nearest_sample_voting = torch.tensor(nearest_sample_voting)
+                print(f"{confidence_score.shape=}, {variability_score.shape=}, {nearest_sample_voting.shape=}")
+                torch.save((confidence_score, variability_score, nearest_sample_voting),f"{args.result_file_path}/iter{outer_iter}_variability_and_voting.pth")
+                assert confidence_score.shape==variability_score.shape==nearest_sample_voting.shape, f"[ERROR] should have the same shape, but now {confidence_score.shape=}, {variability_score.shape=}, {nearest_sample_voting.shape=}"
+
             counts = Counter(x[0] for x in prompt_samples_idx)
             result_sparse_list = [counts.get(i, 0) for i in range(args.len_LLM)]  
             print(f"{result_sparse_list=}")
             logging.info(f"#selected samples from each PLM in the prompt list: {result_sparse_list}")
+            if args.unbalance_generation == True:
+                model_sample_proportion = F.softmax((torch.tensor(model_voting_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
+                num_use_samples_float = args.num_use_total_samples_each_step_extend * model_sample_proportion
+                args.num_use_samples_each_step_extend = num_use_samples_float.long() # no rounding, just keep the integer part
+                difference = args.num_use_total_samples_each_step_extend - torch.sum(args.num_use_samples_each_step_extend)
+                if difference > 0: # Add 1 to the elements with the largest fractional part
+                    fractional_part = num_use_samples_float - args.num_use_samples_each_step_extend
+                    adjustment_indices = torch.argsort(fractional_part, descending=True)[:difference.item()]
+                    args.num_use_samples_each_step_extend[adjustment_indices] += 1
+                elif difference < 0: # Subtract 1 from the elements with the smallest fractional part
+                    fractional_part = num_use_samples_float - args.num_use_samples_each_step_extend
+                    adjustment_indices = torch.argsort(fractional_part)[:abs(difference.item())]
+                    args.num_use_samples_each_step_extend[adjustment_indices] -= 1
+                print(f"{model_sample_proportion=}, each model extend {args.num_use_samples_each_step_extend} in this step respectively")
+                logging.info(f"{model_sample_proportion=}, each model extend {args.num_use_samples_each_step_extend} in this step respectively")
             # ########################### use samples that are the nearest to real images ###########################
 
             for im in range(args.len_LLM):
@@ -2401,8 +2429,11 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 torch.cuda.empty_cache()
                 print(f'here0-7, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
                 
-                # gen_data and write data
-                gen_syn_data_few_shot(args)
+                # gen_data and write 
+                if 'gpt-3.5' in args.llms[im] or 'gpt-4' in args.llms[im]:
+                    gen_syn_data_few_shot_gpt_api(args)
+                else:
+                    gen_syn_data_few_shot(args)
                 torch.cuda.empty_cache()
             # do not perform things now, wait for gen to target number of samples
             return
@@ -2494,14 +2525,17 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=1, help="how much steps for constructing the total dataset from all LLMs")
     parser.add_argument('--num_use_samples_init', default=[2000,2000], nargs='+', type=int)
     parser.add_argument("--gen_few_shot_k", type=int, default=8, help="how much few shot samples are provided for each few shot prompt")
-    parser.add_argument("--gen_few_shot_pool_size", type=int, default=120, help="how much candidate few shot samples are selected for each few shot prompt")
+    parser.add_argument("--gen_few_shot_pool_size", type=int, default=5, help="how much candidate few shot samples are selected for each few shot prompt")
     parser.add_argument("--gen_few_shot_ambiguous_ratio", type=float, default=0.5, help="the ratio of ambiguous samples in the candidate pool")
     parser.add_argument("--gen_batch_size", type=int, default=4, help="The batch size for generation (only if --input_file is not set)")
     parser.add_argument("--gen_max_length", type=int, default=40, help="The maximum output length for each generated text.")
     parser.add_argument("--gen_min_length", type=int, default=1, help="The minimum output length for each generated text.")
-    parser.add_argument("--gen_sample_select", type=str, default='influenceCartography', help="['influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography'
-    parser.add_argument("--sentence_transformer", type=str, default='none', help="the specified sentence transformer for embedding the input sample, set to 'none' if the STM is desired") #,'influenceCartography'
+    parser.add_argument("--gen_sample_select", type=str, default='Cartography', help="['influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography'
+    parser.add_argument("--sentence_transformer", type=str, default='sentence-t5-base', help="the specified sentence transformer for embedding the input sample, set to 'none' if the STM is desired") #,'influenceCartography'
+    parser.add_argument("--voting_range", type=str, default='all', help="find nearest synthetic sample within all the syn samples or within the same class, ['all', 'class']") 
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for") #,'influenceCartography'
+    parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") #,'influenceCartography'
+    parser.add_argument("--unbalance_generation_temperature", type=float, default=3, help="temperature for soften the number of synthetic samples for generation for each PLM") #,'influenceCartography'
     parser.add_argument("--voted_sample_select", type=str, default='top', help="the method of getting samples from the voting result, including using the top and histogram-based-random-sampling as ['top', 'sampling', ...]") #,'influenceCartography'
 
     # # Required parameters for evaluating synthetic data
@@ -2599,7 +2633,7 @@ if __name__ == "__main__":
     args.model_name_sample = f'{args.task_name}/[mix]_{args.llms[0]}_{args.num_use_samples_inner[0]}' if args.mix else f'{args.task_name}/{args.llms[0]}_{args.num_use_samples_inner[0]}'
     for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
         args.model_name_sample += f'__{_model}_{num_samples_inner}'
-    args.save_path=os.path.join(f'results/with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_{args.gen_sample_select}/init{args.num_use_samples_init[0]}_steps{args.steps}/{args.small_model_name}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
+    args.save_path=os.path.join(f'results/with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
     args.save_path = f"{args.save_path}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.max_outer_iter}_{args.seed}"
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -2611,12 +2645,12 @@ if __name__ == "__main__":
     log_format = '%(asctime)s [%(levelname)s]: %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                         format=log_format, datefmt='%m/%d %I:%M:%S %p')
-    if not os.path.exists(f'./logging/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
-        os.makedirs(f'./logging/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
-    fh = logging.FileHandler(os.path.join(f'./logging/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
+    if not os.path.exists(f'./logging/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
+        os.makedirs(f'./logging/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
+    fh = logging.FileHandler(os.path.join(f'./logging/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
-    args.result_file_path = f'./results/eval_on_real/with_real_few_shot_accumulate_{args.gen_sample_select}/{args.small_model_name}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
+    args.result_file_path = f'./results/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
     if not os.path.exists(args.result_file_path):
         os.makedirs(args.result_file_path)
 
@@ -2699,6 +2733,8 @@ if __name__ == "__main__":
         # get the schedular for each sample
         # total_samples = sum(args.num_use_samples_inner)
         args.num_use_samples_each_step_extend = [(args.num_use_samples_inner[im]-args.num_use_samples_init[im])//args.steps for im in range(args.len_LLM)]
+        args.num_use_total_samples_each_step_extend = (sum(args.num_use_samples_inner)-sum(args.num_use_samples_init))//args.steps
+        print(f"[INFO] extend {args.num_use_total_samples_each_step_extend} samples in total for each step")
         args.init_sample_path = []
         args.working_sample_dir = []
         # args.working_sample_path = []
@@ -2708,20 +2744,23 @@ if __name__ == "__main__":
 
         for im in range(args.len_LLM):
             args.init_sample_path.append(f'data_accumulate_start/{args.task_name}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}/train.jsonl')
-            args.working_sample_dir.append(f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.num_use_samples_each_step_extend[im]}/')
+            args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             if not os.path.exists(args.working_sample_dir[im]):
                 os.makedirs(args.working_sample_dir[im])
             # args.working_sample_path.append(f'{args.working_sample_dir[im]}train.jsonl')
-            args.working_prompt_dir.append(f'{SYN_DATA_PATH}{args.gen_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.num_use_samples_each_step_extend[im]}/')
-            # for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
-            #     prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
+            args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
+            for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
+                prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
         
         args.num_use_samples_init = torch.tensor(args.num_use_samples_init,dtype=torch.long).to(args.device)
         args.num_use_samples_each_step_extend = torch.tensor(args.num_use_samples_each_step_extend,dtype=torch.long).to(args.device)
-        for i_step in range(4,args.steps+1):
+        args.num_use_total_samples_each_step_extend = torch.tensor(args.num_use_total_samples_each_step_extend,dtype=torch.long).to(args.device)
+        args.sample_each_llm = torch.zeros((args.len_LLM),dtype=torch.long).to(args.device)
+        for i_step in range(args.steps+1):
             args.i_step = i_step
-            args.sample_each_llm = args.num_use_samples_init + i_step * args.num_use_samples_each_step_extend
-            args.sample_each_llm = torch.tensor(args.sample_each_llm).to(args.device)
+            # args.sample_each_llm = args.num_use_samples_init + i_step * args.num_use_samples_each_step_extend
+            args.sample_each_llm = args.sample_each_llm + args.num_use_samples_each_step_extend
+            # args.sample_each_llm = torch.tensor(args.sample_each_llm).to(args.device)
             print('num of use syn samples in total: {}'.format(sum(args.num_use_samples_inner)))
             print(f'num of current syn samples for step {i_step}: {args.sample_each_llm}')
 
@@ -2767,8 +2806,11 @@ if __name__ == "__main__":
 
             if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 print(f'use {[len(train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
-                print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
-                print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
+                print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} small train data...')
+                print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} samll valid data...')
+                logging.info(f'use {[len(train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
+                logging.info(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} small train data...')
+                logging.info(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} small valid data...')
                 # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
                 # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
                 print(f'use {len(dev_iter.dataset.idx)} dev data...')
