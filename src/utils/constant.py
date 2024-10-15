@@ -23,6 +23,11 @@ MODEL_PATH = {
     'ernie-3.0-base-zh': '../../../.cache/huggingface/hub/models--nghuyong--ernie-3.0-base-zh/'
 }
 
+SENTENCE_TRANSFORMERS_PATH = {
+    'stsb-roberta-base-v2': '/home/DAIR/zouty/.cache/huggingface/hub/sentence-transformers--stsb-roberta-base-v2',
+    'sentence-t5-base': '/home/DAIR/zouty/.cache/huggingface/hub/sentence-transformers--sentence-t5-base/',
+}
+
 SMALL_MODEL_WITH_TOKENIZER = ['bert', 'ernie']
 
 TASK_NEED_SYN = ['worksheet']

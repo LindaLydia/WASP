@@ -28,7 +28,8 @@ class TokenizedDataset(Dataset):
             for _file_path, _is_syn in zip(file_path, [1,0]):
                 if _file_path == '':
                     continue
-                with open(_file_path, 'r') as file:
+                # with open(_file_path, 'r') as file:
+                with open(_file_path, 'r', encoding='utf-8', errors='ignore') as file:
                     counter = 0
                     for line in file:
                         item = json.loads(line.strip())
@@ -57,7 +58,8 @@ class TokenizedDataset(Dataset):
         else:
             if ('imdb' in file_path and (0 < max_sample < 1000)) or small_dataset_shuffle==True:
                 lines = []
-                with open(file_path, 'r') as file:
+                # with open(file_path, 'r') as file:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
                     for line in file:
                         lines.append(line)
                 random.shuffle(lines)
@@ -90,7 +92,8 @@ class TokenizedDataset(Dataset):
                     if counter == max_sample:
                         break
             else:
-                with open(file_path, 'r') as file:
+                # with open(file_path, 'r') as file:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
                     counter = 0
                     for line in file:
                         item = json.loads(line.strip())

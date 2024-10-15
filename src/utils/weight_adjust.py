@@ -228,7 +228,7 @@ def weight_decay(args, current_outer_iter_trained_model, train_data, theta_mappe
     sum_of_time_for_weight_adjust += (end_time-start_time)
     print(f"[timing] WeightAdjust {sum_of_time_for_weight_adjust}s")
 
-    logits_for_model_data = torch.stack([torch.stack(_c) for _c in logits_for_model_data])
+    logits_for_model_data = torch.stack([torch.cat(_c,dim=0) for _c in logits_for_model_data])
     torch.save(logits_for_model_data, f"{args.result_file_path}/logits_withoutlabel_of_data.pth")
 
     return theta_mapped, model_total_acc

@@ -924,7 +924,7 @@ def sample_dynamic_selection(confidence_score, variability_score, count, pool_si
         print(f"{selected_indices[ic]=}, [{accumulated_sample_count[model_idx]}, {accumulated_sample_count[model_idx+1]}], {model_idx=}, {sample_idx=}")
         top_ambiguous_easy_to_learn_idx[model_idx].append(int(sample_idx))
     
-    return top_ambiguous_easy_to_learn_idx
+    return top_ambiguous_easy_to_learn_idx, selected_indices
 
 
 def sample_error_decreased_selection(error_decrease, count, pool_size=40, is_random='Cartography'):
@@ -1336,3 +1336,5 @@ def model_pred_change_after_gold(args, model_list, model_list_after_gold, datase
     print(f"{loss_per_sample_change[0].shape=}, {error_per_sample_change[0].shape=}, {logits_per_sample_change[0].shape=}, {len(logits_per_sample_change)=}")
 
     return loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, logits_per_sample_change
+
+

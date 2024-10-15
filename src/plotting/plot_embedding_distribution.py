@@ -1,0 +1,780 @@
+import os, sys
+import argparse
+import json
+import random
+import re
+import copy
+from tqdm import tqdm
+
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+from transformers import BertModel, BertForSequenceClassification, BertTokenizer
+from sentence_transformers import SentenceTransformer
+
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+from sklearn.metrics import mutual_info_score
+from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+# from scipy.linalg import sqrtm
+
+# from plot_utils import *
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(project_root)
+
+
+
+
+# Load and preprocess data from the jsonl file
+class TokenizedDataset(Dataset):
+    def __init__(self, file_path='', text_column='text', label_column='label', index_column='idx', tokenizer=None, max_length=512, device='cpu', max_sample=-1, small_dataset_shuffle=False):
+        self.text = []
+        self.ids = []
+        self.attention_mask = []
+        self.label = []
+        self.idx = []
+        if file_path == '':
+            self.ids = torch.tensor([self.ids],dtype=torch.int64).to(device)
+            self.attention_mask = torch.tensor([self.attention_mask],dtype=torch.int64).to(device)
+            self.label = torch.tensor(self.label,dtype=torch.int64).to(device)
+            self.idx = torch.tensor(self.idx,dtype=torch.int64).to(device)
+        else:
+            with open(file_path, 'r') as file:
+                counter = 0
+                lines = []
+                # with open(file_path, 'r') as file:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                    for line in file:
+                        lines.append(line)
+                if small_dataset_shuffle == True:
+                    random.shuffle(lines)
+                for line in lines:
+                    item = json.loads(line.strip())
+                    text = item[text_column]
+                    label = item[label_column]  # Assuming your jsonl file contains a 'label' field
+                    idx = item[index_column]
+                    tokenized = tokenizer.encode_plus(
+                        text,
+                        add_special_tokens=True,
+                        max_length=max_length,
+                        padding='max_length',
+                        truncation=True,
+                        return_attention_mask=True,
+                        return_tensors='pt',
+                    )
+                    self.text.append(text)
+                    self.ids.append(tokenized['input_ids'])
+                    self.attention_mask.append(tokenized['attention_mask'])
+                    self.label.append(label)
+                    self.idx.append(idx)
+                    counter += 1
+                    if max_sample > 0 and counter == max_sample:
+                        break
+            # print("in TokenizedDataset init", self.text[0], self.ids[0], self.attention_mask[0], self.label[0], self.idx[0])
+            # print("in TokenizedDataset init", self.text[-1], self.ids[-1], self.attention_mask[-1], self.label[-1], self.idx[-1])
+            # print(self.ids)
+            # print(self.label)
+            # print(self.ids[-1].dtype)
+            # self.ids = torch.stack(self.ids).squeeze().to(device)
+            # self.attention_mask = torch.stack(self.attention_mask).squeeze().to(device)
+            # self.label = torch.tensor(self.label).long().to(device)
+            # self.idx = torch.tensor(self.idx).long().to(device)
+            self.ids = torch.stack(self.ids).squeeze()
+            self.attention_mask = torch.stack(self.attention_mask).squeeze()
+            self.label = torch.tensor(self.label).long()
+            self.idx = torch.tensor(self.idx).long()
+        # print(self.ids.shape, self.attention_mask.shape, self.label.shape, self.idx.shape)
+        # print(self.ids.dtype, self.attention_mask.dtype, self.label.dtype, self.idx.dtype)
+
+    def __len__(self):
+        return len(self.ids)
+
+    def __getitem__(self, index):
+        return self.ids[index], self.attention_mask[index], self.label[index], self.idx[index]
+
+SYN_DATA_PATH = 'data_new/'
+MODEL_PATH = {
+    'bert-base-uncased': "../../../.cache/huggingface/hub/models--bert-base-uncased/snapshots/1dbc166cf8765166998eff31ade2eb64c8a40076/",
+    'distilbert-base-uncased': "../../../.cache/huggingface/hub/models--distilbert-base-uncased/snapshots/6cdc0aad91f5ae2e6712e91bc7b65d1cf5c05411/",
+    'sentence-t5-base': "../../../.cache/huggingface/hub/sentence-transformers--sentence-t5-base/",
+}
+
+def file_choose(num_samples):
+    bins = [0,10,1000,10000,20000,50000,100000,200000,500000,1000000]
+    bins = [0,10000,20000,50000]
+    file_samples = -1
+    for j in range(1,len(bins)):
+        if bins[j-1] < num_samples <= bins[j]:
+            file_samples = bins[j]
+    assert file_samples > 0, "too many samples, haven't generated enough"
+    print(f"require #{num_samples}, use file under #{file_samples}")
+    return file_samples 
+
+
+def set_seed(seed = 42) -> None:
+    """Set RNG seeds for python's `random` module, numpy and torch"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def load_data(args, batch_size=32, backward_batch_size=1000, device="cpu", gold_data_path='data/', syn_data_path='data_new/', vectors=None, use_tree=False, num_use_samples_inner=100, num_use_samples_outer=100, shuffle_train=True):
+    if args.small_model_name.upper() == "LSTM":
+        return load_iters_lstm(args, batch_size, backward_batch_size, device, gold_data_path, syn_data_path, vectors, use_tree, num_use_samples_inner, num_use_samples_outer, shuffle_train)
+    elif 'bert' in args.small_model_name.lower():
+        return load_iters_bert(args, batch_size, backward_batch_size, device, gold_data_path, syn_data_path, vectors, use_tree, num_use_samples_inner, num_use_samples_outer, shuffle_train)
+
+
+def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu", gold_data_path='data', syn_data_path='data', vectors=None, use_tree=False, num_use_samples_inner=100, num_use_samples_outer=100, shuffle_train=True):
+    TEXT = data.Field(batch_first=True, include_lengths=True, lower=True, unk_token='<unk>')
+    LABEL = data.LabelField(batch_first=True, use_vocab=False) # , use_vocab=True
+    INDEX = data.RawField()
+    fields = {'C': ('text', TEXT),
+              'Y': ('label', LABEL),
+              'idx': ('idx', INDEX)}
+
+    # if args.query_input_file == None:
+    #     args.query_input_file = []
+    #     for i in range(args.len_LLM):
+    #         args.query_input_file.append((f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/train.jsonl') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl'))
+    #         print(f"args.query_input_file[-1]={args.query_input_file[-1]}")
+ 
+    train_data_list = []
+    small_train_data_list = []
+    small_valid_data_list = []
+    all_data_examples = []
+    for i in range(args.len_LLM):
+        if args.steps == 0:
+            train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/')
+        else:
+            assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
+            train_data_path = f'{SYN_DATA_PATH}{args.model_name_sample}/{args.small_model_name}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.num_use_samples_each_step_extend[i]}/'
+        train_data, _ = data.TabularDataset.splits(
+            path=train_data_path,
+            train='train.jsonl',
+            test='train.jsonl',
+            # train='test.jsonl',
+            # test='test.jsonl',
+            format='json',
+            fields=fields,
+            filter_pred=lambda ex: ex.label != '-'  # filter the example which label is '-'(means unlabeled)
+        )
+        traindataset = train_data.examples[:args.num_use_samples_inner[i]]
+        for _i, data_item in enumerate(traindataset):
+            data_item.idx = _i
+        # for data_item in traindataset:
+        #     print("in construct, total data", data_item.idx, data_item.text, data_item.label)
+        # small_traindataset, small_validationdataset = copy.deepcopy(traindataset[:int(args.num_use_samples_inner[i]*args.train_ratio)]), copy.deepcopy(traindataset[int(args.num_use_samples_inner[i]*args.train_ratio):])
+        all_data_examples += traindataset
+        shuffled_traindataset = copy.deepcopy(traindataset)
+        random.shuffle(shuffled_traindataset)
+        # train-valid split
+        small_traindataset, small_validationdataset = copy.deepcopy(shuffled_traindataset[:int(args.num_use_samples_inner[i]*args.train_ratio)]), copy.deepcopy(shuffled_traindataset[int(args.num_use_samples_inner[i]*args.train_ratio):])
+        small_traindataset_idx = []
+        for _i, data_item in enumerate(small_traindataset):
+            small_traindataset_idx.append(data_item.idx)
+            data_item.idx = _i
+        # for data_item in small_traindataset:
+        #     print("in construct, small data", data_item.idx, data_item.text, data_item.label)
+        # random.shuffle(small_traindataset)
+        for _i, data_item in enumerate(small_validationdataset):
+            data_item.idx = _i
+        # ############## construct all data and separate as train and test ##############
+        train_data = data.Dataset(traindataset, train_data.fields)
+        train_data_list.append(train_data)
+        small_train_data = data.Dataset(small_traindataset, train_data.fields)
+        small_train_data_list.append(small_train_data)
+        small_valid_data = data.Dataset(small_validationdataset, train_data.fields)
+        small_valid_data_list.append(small_valid_data)
+        # ############## construct all data and separate as train and test ##############
+
+        # save original text of small train dataset
+        args.samples_text[i] = []
+        total_sample_text = []
+        with jsonlines.open(f'{train_data_path}train.jsonl', 'r') as reader:
+            for json_obj in reader:
+                total_sample_text.append(json_obj['C'])
+        for _idx in small_traindataset_idx:
+            args.samples_text[i].append(total_sample_text[_idx])
+        print(f"[debug] sample_text has length {len(args.samples_text[i])}")
+
+    fields_dev = {'text': ('text', TEXT),
+                  'label': ('label', LABEL),
+                  'idx': ('idx', INDEX)}
+    dev_data, test_data = data.TabularDataset.splits(
+        path=gold_data_path,
+        validation='train.jsonl',
+        test='test.jsonl',
+        # test='test_small.jsonl',
+        format='json',
+        fields=fields_dev,
+        # fields=fields,
+        filter_pred=lambda ex: ex.label != '-'  # filter the example which label is '-'(means unlabeled)
+    )
+
+    print(f"[debug] args.use_dev_outer={args.use_dev_outer}, args.subset_outer={args.subset_outer}")
+    if args.use_dev_outer:
+        dev_data_all = data.Dataset(dev_data.examples, dev_data.fields)
+        dev_data = data.Dataset(dev_data.examples[:num_use_samples_outer], dev_data.fields)
+    else:
+        if args.subset_outer: # currently use this one
+            indices = np.random.choice(list(range(args.sample_each_llm[-1])), int(num_use_samples_outer//args.len_LLM), replace=False)
+            print(f"[debug] len(train_data.examples)={len(train_data.examples)}")
+            data_sample_list = []
+            for i in range(args.len_LLM):
+                data_sample_list = data_sample_list + [train_data_list[i].examples[ix] for ix in indices]
+            dev_data = data.Dataset(data_sample_list, train_data.fields)
+        else:
+            dev_data=train_data
+        dev_data_all=train_data
+
+    print(f'[debug] len(all_data_examples) for train data is {len(all_data_examples)}')
+    all_data_examples = all_data_examples + dev_data.examples + test_data.examples
+    print(f'[debug] len(all_data_examples) for all data is {len(all_data_examples)}')
+    all_data = data.Dataset(all_data_examples, train_data.fields)
+    if vectors is not None:
+        TEXT.build_vocab(all_data, vectors=vectors, unk_init=torch.Tensor.normal_)
+    else:
+        TEXT.build_vocab(all_data, max_size=500000)
+    # print(f"[debug] see TEXT after build_vocab {TEXT}")
+    LABEL.build_vocab(all_data)
+    print(f"[debug] see LABEL after build_vocab {LABEL}")
+
+    concat_of_data = train_data_list + train_data_list + small_train_data_list + small_valid_data_list + [dev_data]
+    concat_of_data = tuple(concat_of_data)
+    concat_of_batch_size = [batch_size]*args.len_LLM + [backward_batch_size]*args.len_LLM + [batch_size]*args.len_LLM + [batch_size]*args.len_LLM + [batch_size]
+    concat_of_batch_size = tuple(concat_of_batch_size)
+
+    iters = BucketIterator.splits(
+        concat_of_data,
+        batch_sizes=concat_of_batch_size,
+        device=device,
+        sort_key=lambda x: len(x.text),
+        sort_within_batch=True,
+        repeat=False,
+        shuffle=shuffle_train,
+    )
+    iters = list(iters)
+    train_iter_list = iters[0:args.len_LLM]
+    train_iter_backward_list = iters[args.len_LLM:2*args.len_LLM]
+    small_train_iter_list = iters[2*args.len_LLM:3*args.len_LLM]
+    small_valid_iter_list = iters[3*args.len_LLM:4*args.len_LLM]
+    dev_iter = iters[-1]
+
+    test_iter = Iterator(test_data,
+                         batch_size=batch_size,
+                         device=device,
+                         sort=False,
+                         sort_within_batch=False,
+                         repeat=False,
+                         shuffle=False)
+    
+    print(f'[debug] before exiting load iter: len(train_iter_list)={len(train_iter_list)}, len(train_data_list)={len(train_data_list)}')
+    # return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, test_iter, TEXT, LABEL, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all
+    return train_data_list, train_iter_list
+
+
+def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu", gold_data_path='data', syn_data_path='data', vectors=None, use_tree=False, num_use_samples_inner=100, num_use_samples_outer=100, shuffle_train=True):
+    init_token = args.tokenizer.cls_token # [CLS]   
+    eos_token = args.tokenizer.sep_token # [SEP]
+    pad_token = args.tokenizer.pad_token # [PAD]
+    unk_token = args.tokenizer.unk_token # [UNK]
+    init_token_idx = args.tokenizer.convert_tokens_to_ids(init_token) # 101
+    eos_token_idx = args.tokenizer.convert_tokens_to_ids(eos_token) # 102
+    pad_token_idx = args.tokenizer.convert_tokens_to_ids(pad_token) # 0
+    unk_token_idx = args.tokenizer.convert_tokens_to_ids(unk_token) # 100
+
+
+    train_data_list = []
+    small_train_data_list = []
+    small_valid_data_list = []
+    all_data_examples = []
+    for i in range(args.len_LLM):
+        print("train_dataset for", args.llms[i])
+        print(f"{SYN_DATA_PATH=}")
+        # print("train_dataset for", args.llms[i], "file for data is", (file_choose(args.separate_num_use_samples_inner[i] if args.mix else file_choose(args.num_use_samples_inner[i]))))
+        if SYN_DATA_PATH == 'data_new/':
+            train_data_path = f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl'
+        else:
+            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp3/train.jsonl' # accumulate-adjust-2-2
+            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_200/train.jsonl' # accumulate-adjust-2-2
+            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/100_20_20/train.jsonl' # accumulate-adjust-2-2
+        print(f"{train_data_path=}")
+        train_data = TokenizedDataset(
+            file_path=train_data_path,
+            text_column='C',
+            label_column='Y',
+            index_column='idx',
+            tokenizer=args.tokenizer,
+            max_length=512,
+            # device=args.device,
+            max_sample=args.num_use_samples_inner[i]
+        )
+        # train_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i])]).long().to(args.device)
+        train_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i])]).long()
+        
+        # indices = list(range(args.num_use_samples_inner[i]))
+        # random.shuffle(indices)
+        # train_valid_pivot_point = int(args.num_use_samples_inner[i]*args.train_ratio)
+        
+        # # ############## separate as train and test ##############
+        # # train-valid split
+        # small_train_data = TokenizedDataset(
+        #     file_path=(''),
+        # )
+        # small_train_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[:train_valid_pivot_point]]
+        # small_train_data.ids = copy.deepcopy(train_data.ids[indices[:train_valid_pivot_point]])
+        # small_train_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[:train_valid_pivot_point]])
+        # small_train_data.label = copy.deepcopy(train_data.label[indices[:train_valid_pivot_point]])
+        # # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long().to(args.device)
+        # small_train_data.idx = torch.tensor([_i for _i in range(train_valid_pivot_point)]).long()
+        
+        # small_valid_data = TokenizedDataset(
+        #     file_path=(''),
+        # )
+        # small_valid_data.text = [copy.deepcopy(train_data.text[ix]) for ix in indices[train_valid_pivot_point:]]
+        # small_valid_data.ids = copy.deepcopy(train_data.ids[indices[train_valid_pivot_point:]])
+        # small_valid_data.attention_mask = copy.deepcopy(train_data.attention_mask[indices[train_valid_pivot_point:]])
+        # small_valid_data.label = copy.deepcopy(train_data.label[indices[train_valid_pivot_point:]])
+        # # small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long().to(args.device)
+        # small_valid_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i]-train_valid_pivot_point)]).long()
+
+        train_data_list.append(train_data)
+        # small_train_data_list.append(small_train_data)
+        # small_valid_data_list.append(small_valid_data)
+        # # ############## separate as train and test ##############
+        
+        # # save original text of small train dataset
+        # args.samples_text[i] = [copy.deepcopy(text) for text in small_train_data.text]
+        # print(f"[debug] sample_text has length {len(args.samples_text[i])}")
+
+    print("test dataset")
+    test_data = TokenizedDataset(
+        # file_path=(gold_data_path+'test.jsonl'),
+        file_path=(gold_data_path+'test_small.jsonl'),
+        text_column='text',
+        label_column='label',
+        index_column='idx',
+        tokenizer=args.tokenizer,
+        device=args.device,
+        max_length=512,
+        max_sample=args.gold_data_num, # use all that is provided in the dataset file
+        # max_sample=-1 # use all that is provided in the dataset file
+        small_dataset_shuffle=True,
+    )
+
+    if args.consider_real:
+        train_data_list.append(test_data)
+
+    train_iter_list = [DataLoader(dataset, batch_size=batch_size, shuffle=False) for dataset in train_data_list]
+    # test_iter = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+
+    print(f'[debug] before exiting load iter: len(train_iter_list)={len(train_iter_list)}, len(train_data_list)={len(train_data_list)}')
+    # return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, test_iter, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all
+    return train_data_list, train_iter_list
+
+
+def get_embedding(args, model, train_iter):
+    if 'sentence' in args.small_model_name:
+        model = model.to(args.device)
+        # # sentences = ["This is an example sentence", "Each sentence is converted"]
+        # model = SentenceTransformer('sentence-transformers/stsb-roberta-base-v2')
+        embedding_list = model.encode(train_iter.dataset.text)
+        # # print(embedding_list)
+        print(f"{type(embedding_list)=}")
+        # embedding_list = np.asarray(embedding_list.detach().cpu())
+        label_list = np.asarray(train_iter.dataset.label)
+    else:
+        model_copy = copy.deepcopy(model)
+        model_copy.to(args.device)
+        # print(f'a model on gpu, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+        # print(f"{theta.shape=}, {type(theta)=}")
+        model_copy.train()
+        embedding_list = []
+        label_list = []
+        for batch in tqdm(train_iter):
+            if args.small_model_name.upper() == 'LSTM':
+                (inputs, lens), labels = batch.text, batch.label
+                idx = batch.idx
+            elif 'bert' in args.small_model_name.lower():
+                inputs, attention_mask, labels, idx = batch
+                inputs = inputs.to(args.device)
+                attention_mask = attention_mask.to(args.device)
+                labels = labels.to(args.device)
+                idx = idx.to(args.device)
+
+            if args.small_model_name.upper() == 'LSTM':
+                output = model_copy(inputs, lens)
+            elif 'bert' in args.small_model_name.lower():
+                model_output = model_copy(inputs, attention_mask=attention_mask)
+                # output = model_output.logits
+                embeddings = model_output.last_hidden_state
+                embeddings = torch.mean(embeddings, dim=1)  # mean_pooling_embeddings, Shape: [batch_size, hidden_size]
+            embedding_list.append(embeddings.detach().cpu().numpy())
+            label_list.append(labels.cpu().numpy())
+        model_copy.to("cpu")
+        embedding_list = np.concatenate(embedding_list, axis=0)
+        label_list = np.concatenate(label_list, axis=0)
+    # return embedding_list
+    return embedding_list, label_list
+
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='summary generator')
+    parser.add_argument("--small_model_name", type=str, default='bert-base-uncased', help="The small Transformer language model to use.")
+    parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
+    parser.add_argument('--num_use_samples_inner', default=[200000,200000], nargs='+', type=int)
+    parser.add_argument('--syn_data_path', default=None, type=str)
+    parser.add_argument('--task_name', default="rte", type=str)
+    parser.add_argument('--gpu', default=0, type=int, help='gpu device id')
+    parser.add_argument('--seed', default=12345, type=int, help='random seed')
+    parser.add_argument('--consider_real', default=False, type=bool, help='whether considers real test data in distribution visalization')
+    parser.add_argument('--gold_data_num', default=1000, type=int, help='how much real data to consider')
+    parser.add_argument('--steps', default=4, type=int, help='how many accumulation iterations are done')
+    args = parser.parse_args()
+
+    set_seed(args.seed)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    torch.cuda.set_device(args.gpu)  
+    args.device = device
+    torch.cuda.empty_cache()
+
+    args.len_LLM = len(args.llms)
+    assert args.len_LLM == len(args.num_use_samples_inner), "Must specify the number of inner samples used for every LLM's generated data"
+    args.accumulate_sampels = [0]
+    for _i in range(args.len_LLM):
+        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.num_use_samples_inner[_i])
+    if args.consider_real:
+        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.gold_data_num)
+    args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
+    print(f"{args.accumulate_sampels=}")
+
+    args.model_name_sample = f'{args.task_name}___{args.llms[0]}_{args.num_use_samples_inner[0]}'
+    for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
+        args.model_name_sample += f'__{_model}_{num_samples_inner}'
+
+    print(f"{args.syn_data_path=}")
+    if args.syn_data_path != None:
+        SYN_DATA_PATH = args.syn_data_path
+        print(f"{SYN_DATA_PATH}")
+
+    save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
+
+    ############################### caldulate and save ################################
+    if 'bert' in args.small_model_name:
+        init_model = BertModel.from_pretrained(MODEL_PATH[args.small_model_name])
+        args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
+    elif 'sentence' in args.small_model_name:
+        embedding_model = SentenceTransformer(MODEL_PATH[args.small_model_name])
+
+    train_data_list, train_iter_list = load_data(args, batch_size=8, backward_batch_size=1000, device=args.device, gold_data_path=f'./data/{args.task_name}/std/', syn_data_path=SYN_DATA_PATH, vectors=None, use_tree=False, num_use_samples_inner=args.num_use_samples_inner, num_use_samples_outer=100, shuffle_train=True)
+    print(f"{len(train_data_list)=}, {len(train_iter_list)=}")
+    embedding_list = []
+    label_list = []
+    for i in range(len(train_data_list)):
+        _embeddings, _labels = get_embedding(args, init_model, train_iter_list[i])
+        embedding_list.append(_embeddings)
+        label_list.append(_labels)
+    # embeddings = torch.cat(embedding_list,dim=0).cpu().numpy()
+    embeddings = np.concatenate(embedding_list, axis=0)
+    labels = np.concatenate(label_list,axis=0)
+    print(f"{embeddings.shape=}, {labels.shape=}")
+    embeddings = embeddings.reshape(embeddings.shape[0],-1)
+    
+    tsne = TSNE(n_components=2, random_state=42)
+    embeddings_2d = tsne.fit_transform(embeddings)
+    if not os.path.exists('./figure/distribution/embeddings/'):
+        os.makedirs('./figure/distribution/embeddings/')
+    # np.savez(f'./figure/distribution/embeddings/{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels)
+    np.savez(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels) # currently without test
+    
+    # # data = np.load(f'./figure/distribution/embeddings/{args.model_name_sample}.npz')
+    # data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}.npz')
+    # embeddings_2d = data['embeddings_2d']
+    # embeddings = data['embeddings']
+    # labels = data['labels']
+    # tsne = TSNE(n_components=2, random_state=42)
+    # embeddings_2d = tsne.fit_transform(embeddings[:int(args.accumulate_sampels[-1])])
+    # # np.savez(f'./figure/distribution/embeddings/withoutest_{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings[:int(args.accumulate_sampels[-1])], labels=labels[:int(args.accumulate_sampels[-1])])
+    # np.savez(f'./figure/distribution/embeddings/{save_type}_withoutest_{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings[:int(args.accumulate_sampels[-1])], labels=labels[:int(args.accumulate_sampels[-1])])
+    ############################### caldulate and save ################################
+
+    # assert 1 == 0
+
+    data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz')
+    # data = np.load(f'./figure/distribution/embeddings/withoutest_{args.model_name_sample}.npz')
+    # data = np.load(f'./figure/distribution/temp.npz')
+    embeddings_2d = data['embeddings_2d']
+    embeddings = data['embeddings']
+    labels = data['labels']
+    label_unique_values, counts = np.unique(labels, return_counts=True)
+    # print(f"{label_unique_values=}")
+    print(embeddings.shape, type(embeddings))
+    print(labels.shape, type(labels))
+
+    embeddings_label = {} # key=label, value=list of embeddings belonging to this label from different LLMs
+    for ir, label in enumerate(label_unique_values):
+        # print(f"{ir=}, {label=}")
+        embeddings_label[label] = []
+    for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+        # samples in the range: args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]
+        # but should be the end of the list with i==args.len_LLM
+        for ir, label in enumerate(label_unique_values):
+            if i < args.len_LLM:
+                _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]==label)
+                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]][_index]
+            else:
+                _index = (labels[args.accumulate_sampels[i]:]==label)
+                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+            # print(_index, type(_index), len(_index))
+            # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
+            embeddings_label[label].append(_embeddings_of_this_label)
+
+    # for i1 in range(args.len_LLM):
+    #     for i2 in range(i1, args.len_LLM):
+    #         mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1]+1000], embeddings[args.accumulate_sampels[i2]:args.accumulate_sampels[i2]+1000], discrete_features=[False])
+    #         # mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]], embeddings[args.accumulate_sampels[i2]:args.accumulate_sampels[i2+1]], discrete_features=[False])
+    #         print(f"syn #{args.llms[i1]}, syn #{args.llms[i2]}, MI={mutual_info}")
+    # for i1 in range(args.len_LLM):
+    #     mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1]+1000], embeddings[args.accumulate_sampels[-1]:args.accumulate_sampels[-1]+1000], discrete_features=[False])
+    #     # mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]], embeddings[args.accumulate_sampels[-1]:], discrete_features=[False])
+    #     print(f"syn #{args.llms[i1]}, golden dataset, MI={mutual_info}")
+
+    # assert 1 == 0
+    
+    args.accumulate_sampels = torch.cat((args.accumulate_sampels, torch.tensor([labels.shape[0]]).to(args.device)), dim=0)
+
+    # Define colors and markers for each class
+    # colors = ['r', 'g', 'b']  # Red, Green, Blue
+    # markers = ['o', '^', 's']  # Circle, Triangle, Square
+    colors = [
+        (0.12156862745098039, 0.4666666666666667, 0.7058823529411765),  # Blue
+        (1.0, 0.4980392156862745, 0.054901960784313725),  # Orange
+        (0.17254901960784313, 0.6274509803921569, 0.17254901960784313),  # Green
+        (0.8392156862745098, 0.15294117647058825, 0.1568627450980392),  # Red
+        (0.5803921568627451, 0.403921568627451, 0.7411764705882353),  # Purple
+        (0.5490196078431373, 0.33725490196078434, 0.29411764705882354),  # Brown
+        (0.8901960784313725, 0.4666666666666667, 0.7607843137254902),  # Pink
+        (0.4980392156862745, 0.4980392156862745, 0.4980392156862745),  # Grey
+        (0.7372549019607844, 0.7411764705882353, 0.13333333333333333),  # Yellow
+        (0.09019607843137255, 0.7450980392156863, 0.8117647058823529)  # Cyan
+    ]
+    markers = ['o', '^', 's', 'v', 'D', 'H', '*', '+', 'x', '1', '2', '3', '4']
+
+    # # Plot the 2D scatter plot
+    # # fig = plt.figure(figsize=(8, 6))
+    # nrow = 2
+    # ncolumn = 3
+    # fig, axs = plt.subplots(2, 3, figsize=(8, 6), sharex=True, sharey=True)
+    # for i in range(args.len_LLM):
+    #     # mask = np.range(args.accumulate_sampels[i], args.accumulate_sampels[i+1])
+    #     # plt.scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 1], [i]*args.num_use_samples_inner[i], c=colors[i], marker=markers[i],
+    #     #             label=f'LLM {args.llms[i]}', alpha=0.3)
+
+    #     # axs[int(i//ncolumn)][int(i-ncolumn*(i//ncolumn))].scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 1], c=colors[i], marker=markers[i],
+    #     #             label=f'LLM {args.llms[i]}', alpha=0.3)
+    #     axs[int(i//ncolumn)][int(i-ncolumn*(i//ncolumn))].scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 1], c=colors[i], marker=markers[i],
+    #                 label=f'LLM {args.llms[i]}', alpha=0.3)
+    #     # axs[int(i//ncolumn)][int(i-ncolumn*(i//ncolumn))].set_title()
+    #     axs[int(i//ncolumn)][int(i-ncolumn*(i//ncolumn))].legend(loc='upper center')
+    # fig.suptitle('t-SNE Visualization of Embeddings for syndataset generated by different LLMs')
+    # # plt.xlabel('Dimension 1')
+    # # plt.ylabel('Dimension 2')
+    # # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'./figure/distribution/2D/{args.model_name_sample}.png',dpi=200)
+
+    # # Plot the 2D scatter plot, with all-together
+    # nrow = 2
+    # ncolumn = 4
+    # fig, axs = plt.subplots(nrow, ncolumn, figsize=(10.5, 6), sharex=True, sharey=True)
+    # for i in range(args.len_LLM):
+    #     ax_i = i if (i<3) else (i+1)
+    #     # axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 1], c=colors[i], marker=markers[i],
+    #     #             label=f'LLM {args.llms[i]}', alpha=0.3)
+    #     axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 1], c=colors[i], marker=markers[i],
+    #                 label=f'LLM {args.llms[i]}', alpha=0.3)
+    #     # axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].set_title()
+    #     axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].legend(loc='upper center')
+    # # mask_1000_each = []
+    # # for _i in range(args.len_LLM):
+    # #     mask_1000_each += [_j for _j in range(args.accumulate_sampels[_i], args.accumulate_sampels[_i]+1000, 1)]
+    # # axs[nrow-1][ncolumn-1].scatter(embeddings_2d[mask_1000_each, 0], embeddings_2d[mask_1000_each, 1], c=colors[7], marker=markers[7], label=f'Altogether', alpha=0.3)
+    # axs[nrow-1][ncolumn-1].scatter(embeddings_2d[:, 0], embeddings_2d[:, 1], c=colors[7], marker=markers[7], label=f'Altogether', alpha=0.3)
+    # axs[nrow-1][ncolumn-1].legend(loc='upper center')
+    # fig.suptitle('t-SNE Visualization of Embeddings for syndataset generated by different LLMs')
+    # # plt.xlabel('Dimension 1')
+    # # plt.ylabel('Dimension 2')
+    # # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'./figure/distribution/2D/withAll_{args.model_name_sample}.png',dpi=200)
+
+    # # Plot the 2D scatter plot, with test dataset
+    # # fig = plt.figure(figsize=(8, 6))
+    # nrow = 2
+    # ncolumn = 4
+    # fig, axs = plt.subplots(2, 4, figsize=(10.5, 6), sharex=True, sharey=True)
+    # for i in range(args.len_LLM+1):
+    #     ax_i = i if (i<3) else (i+1)
+    #     axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 1], c=colors[i], marker=markers[i],
+    #                 label=(f'LLM {args.llms[i]}' if i<args.len_LLM else 'Golden Data'), alpha=0.3)
+    #     # axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 1], c=colors[i], marker=markers[i],
+    #     #             label=(f'LLM {args.llms[i]}' if i<args.len_LLM else 'Golden Data'), alpha=0.3)
+    #     # axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].set_title()
+    #     axs[int(ax_i//ncolumn)][int(ax_i-ncolumn*(ax_i//ncolumn))].legend(loc='upper center')
+    # fig.suptitle('t-SNE Visualization of Embeddings for syndataset generated by different LLMs')
+    # # plt.xlabel('Dimension 1')
+    # # plt.ylabel('Dimension 2')
+    # # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'./figure/distribution/2D/withTest_{args.model_name_sample}.png',dpi=200)
+
+    # # Plot the 2D scatter plot, without test dataset, consider label, separate label
+    # # fig = plt.figure(figsize=(8, 6))
+    # nrow = len(label_unique_values)
+    # ncolumn = args.len_LLM
+    # fig, axs = plt.subplots(nrow, ncolumn, figsize=(18, 6), sharex=True, sharey=True)
+    # for i in range(args.len_LLM):
+    #     for ir, label in enumerate(label_unique_values):
+    #         temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, :])
+    #         temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000]
+    #         # temp_embeddings_2d = embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :]
+    #         # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
+    #         class_mask = (temp_labels==label).astype(np.int64)
+    #         class_mask = np.nonzero(class_mask)[0]
+    #         # print(type(class_mask), class_mask.shape, class_mask.dtype)
+    #         # print(temp_embeddings_2d[class_mask, 0])
+    #         axs[ir][i].scatter(temp_embeddings_2d[class_mask, 0], temp_embeddings_2d[class_mask, 1], c=colors[ir], marker=markers[ir],
+    #                     label=(f'LLM {args.llms[i]}' if i<args.len_LLM else 'Golden Data')+f'\nclass {ir}', alpha=0.3)
+    #         # axs[ir][i].set_title()
+    #         axs[ir][i].legend(loc='upper center')
+    # fig.suptitle('t-SNE Visualization of Embeddings for syndataset generated by different LLMs')
+    # # plt.xlabel('Dimension 1')
+    # # plt.ylabel('Dimension 2')
+    # # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'./figure/distribution/2D/withTest_withLabel_{args.model_name_sample}.png',dpi=200)
+
+    # Plot the 2D scatter plot, with/without test dataset, consider label, all label in 1 figure
+    # fig = plt.figure(figsize=(8, 6))
+    LLM_names_mapping_dict = {'gpt2-xl':'GPT2', 'llama-2-7b-chat-hf':'Llama2', 'vicuna-7b-1.5v':'Vicuna', 'opt-6.7b':'OPT', 'chatglm3-6b-base':'ChatGLM3', 'flan-t5-xl':'Flan-T5', 'gpt-3.5-turbo-instruct':'GPT-3.5', 'gpt-4-turbo-preview':'GPT-4', 'real':'real'}
+    LLM_names = [LLM_names_mapping_dict[llm] for llm in args.llms] + ['real']
+    nrow = 1
+    ncolumn = (args.len_LLM+1 if args.consider_real else args.len_LLM)
+    fig, axs = plt.subplots(nrow, ncolumn, figsize=(18 if args.consider_real else 16, 3), sharex=True, sharey=True)
+    for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+        # for ir, label in enumerate(label_unique_values):
+        # temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, :])
+        # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000]
+        temp_embeddings_2d = embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :]
+        temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
+        class_mask = (temp_labels==0).astype(np.int64)
+        # class_mask = np.nonzero(class_mask)[0]
+        # for ic in class_mask[110:120]:
+        #     print(int(ic))
+        color_list = [colors[1-int(ic)] for ic in class_mask]
+        marker_list = [markers[1-int(ic)] for ic in class_mask]
+        # print(type(class_mask), class_mask.shape, class_mask.dtype)
+        # print(temp_embeddings_2d[class_mask, 0])
+        axs[i].scatter(temp_embeddings_2d[:, 0], temp_embeddings_2d[:, 1], color=color_list, marker='o',
+                    # label=(f'{LLM_names[i]} if i<args.len_LLM else 'Golden Data'), 
+                    alpha=0.3) #+f'\nclass {ir}'
+        axs[i].set_title(f'{LLM_names[i]}', fontsize=14)
+        # axs[i].legend(loc='upper center')
+    # fig.suptitle('t-SNE Visualization of Embeddings for syndataset generated by different LLMs')
+    # plt.xlabel('Dimension 1')
+    # plt.ylabel('Dimension 2')
+    # plt.legend()
+    plt.tight_layout()
+    if not os.path.exists('./figure/distribution/2D/'):
+        os.makedirs('./figure/distribution/2D/')
+    print(f'./figure/distribution/2D/{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png')
+    plt.savefig(f'./figure/distribution/2D/{save_type}_{"with" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png',dpi=200)
+
+    for i_step in range(1,args.steps+1):
+        plt.clf()
+        fig, axs = plt.subplots(nrow, ncolumn, figsize=(18 if args.consider_real else 16, 3), sharex=True, sharey=True)
+        for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+            # for ir, label in enumerate(label_unique_values):
+            if i < args.len_LLM:
+                temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :])
+                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+            else:
+                temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :])
+                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
+            # temp_embeddings_2d = embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :]
+            # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
+            class_mask = (temp_labels==0).astype(np.int64)
+            # class_mask = np.nonzero(class_mask)[0]
+            # for ic in class_mask[110:120]:
+            #     print(int(ic))
+            color_list = [colors[1-int(ic)] for ic in class_mask]
+            marker_list = [markers[1-int(ic)] for ic in class_mask]
+            # print(type(class_mask), class_mask.shape, class_mask.dtype)
+            # print(temp_embeddings_2d[class_mask, 0])
+            axs[i].scatter(temp_embeddings_2d[:, 0], temp_embeddings_2d[:, 1], color=color_list, marker='o',
+                        # label=(f'{LLM_names[i]} if i<args.len_LLM else 'Golden Data'), 
+                        alpha=0.3) #+f'\nclass {ir}'
+            axs[i].set_title(f'{LLM_names[i]}', fontsize=14)
+            # axs[i].legend(loc='upper center')
+        # fig.suptitle('t-SNE Visualization of Embeddings for syndataset generated by different LLMs')
+        # plt.xlabel('Dimension 1')
+        # plt.ylabel('Dimension 2')
+        # plt.legend()
+        plt.tight_layout()
+        if not os.path.exists('./figure/distribution/2D/'):
+            os.makedirs('./figure/distribution/2D/')
+        print(f'./figure/distribution/2D/step{i_step}_{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png')
+        plt.savefig(f'./figure/distribution/2D/step{i_step}_{save_type}_{"with" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png',dpi=200)
+
+    # # Plot the 2D scatter plot, with test dataset, consider label
+    # # fig = plt.figure(figsize=(8, 6))
+    # nrow = len(label_unique_values)
+    # ncolumn = args.len_LLM+1
+    # fig, axs = plt.subplots(nrow, ncolumn, figsize=(18, 6), sharex=True, sharey=True)
+    # for i in range(args.len_LLM+1):
+    #     for ir, label in enumerate(label_unique_values):
+    #         temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, :])
+    #         temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000]
+    #         # temp_embeddings_2d = embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :]
+    #         # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
+    #         class_mask = (temp_labels==label).astype(np.int64)
+    #         class_mask = np.nonzero(class_mask)[0]
+    #         # print(type(class_mask), class_mask.shape, class_mask.dtype)
+    #         # print(temp_embeddings_2d[class_mask, 0])
+    #         axs[ir][i].scatter(temp_embeddings_2d[class_mask, 0], temp_embeddings_2d[class_mask, 1], c=colors[ir], marker=markers[ir],
+    #                     label=(f'LLM {args.llms[i]}' if i<args.len_LLM else 'Golden Data')+f'\nclass {ir}', alpha=0.3)
+    #         # axs[ir][i].set_title()
+    #         axs[ir][i].legend(loc='upper center')
+    # fig.suptitle('t-SNE Visualization of Embeddings for syndataset generated by different LLMs')
+    # # plt.xlabel('Dimension 1')
+    # # plt.ylabel('Dimension 2')
+    # # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'./figure/distribution/2D/withTest_withLabel_{args.model_name_sample}.png',dpi=200)
+
+    # # Plot the 3D scatter plot
+    # fig = plt.figure(figsize=(8, 6))
+    # ax = fig.add_subplot(111, projection='3d')
+    # for i in range(args.len_LLM):
+    #     # mask = np.range(args.accumulate_sampels[i], args.accumulate_sampels[i+1])
+    #     # plt.scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 1], [i]*args.num_use_samples_inner[i], c=colors[i], marker=markers[i],
+    #     #             label=f'LLM {args.llms[i]}', alpha=0.3)
+
+    #     # ax.scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], 1], np.array([i for _ in range(args.num_use_samples_inner[i])]), c=colors[i], marker=markers[i],
+    #     #             label=f'LLM {args.llms[i]}', alpha=0.3)
+    #     ax.scatter(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 0], embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, 1], np.array([i for _ in range(1000)]), c=colors[i], marker=markers[i],
+    #                 label=f'LLM {args.llms[i]}', alpha=0.3)
+    # plt.title('t-SNE Visualization of Embeddings for different LLMs')
+    # plt.xlabel('Dimension 1')
+    # plt.ylabel('Dimension 2')
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'./figure/distribution/3D/{args.model_name_sample}.png',dpi=200)
