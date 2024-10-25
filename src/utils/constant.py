@@ -69,11 +69,11 @@ FEW_SHOT_PROMPT = {
         "stage": "x2",
         "labels": {
             "0": {
-                "instruction": "{}\nThe new movie review in positive sentiment which is diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above movie reviews in positive sentiment, a new movie review also in positive sentiment but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["1"]
             },
             "1": {
-                "instruction": "{}\nThe new movie review in negative sentiment which is diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above movie reviews in negative sentiment, a new movie review also in negative sentiment but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0"]
             }
         }

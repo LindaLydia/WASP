@@ -15,16 +15,19 @@ from sentence_transformers import SentenceTransformer
 
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 from sklearn.metrics import mutual_info_score
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 # from scipy.linalg import sqrtm
+from scipy.stats import entropy, gaussian_kde
+from scipy.spatial.distance import cdist
 
 # from plot_utils import *
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
 
-
+EPSILON = 1e-30
 
 
 # Load and preprocess data from the jsonl file
@@ -354,8 +357,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
 
     print("test dataset")
     test_data = TokenizedDataset(
-        # file_path=(gold_data_path+'test.jsonl'),
-        file_path=(gold_data_path+'test_small.jsonl'),
+        file_path=(gold_data_path+'test.jsonl'),
+        # file_path=(gold_data_path+'test_small.jsonl'),
         text_column='text',
         label_column='label',
         index_column='idx',
@@ -423,134 +426,7 @@ def get_embedding(args, model, train_iter):
     return embedding_list, label_list
 
 
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='summary generator')
-    parser.add_argument("--small_model_name", type=str, default='bert-base-uncased', help="The small Transformer language model to use.")
-    parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
-    parser.add_argument('--num_use_samples_inner', default=[200000,200000], nargs='+', type=int)
-    parser.add_argument('--syn_data_path', default=None, type=str)
-    parser.add_argument('--task_name', default="rte", type=str)
-    parser.add_argument('--gpu', default=0, type=int, help='gpu device id')
-    parser.add_argument('--seed', default=12345, type=int, help='random seed')
-    parser.add_argument('--consider_real', default=False, type=bool, help='whether considers real test data in distribution visalization')
-    parser.add_argument('--gold_data_num', default=1000, type=int, help='how much real data to consider')
-    parser.add_argument('--steps', default=4, type=int, help='how many accumulation iterations are done')
-    args = parser.parse_args()
-
-    set_seed(args.seed)
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    torch.cuda.set_device(args.gpu)  
-    args.device = device
-    torch.cuda.empty_cache()
-
-    args.len_LLM = len(args.llms)
-    assert args.len_LLM == len(args.num_use_samples_inner), "Must specify the number of inner samples used for every LLM's generated data"
-    args.accumulate_sampels = [0]
-    for _i in range(args.len_LLM):
-        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.num_use_samples_inner[_i])
-    if args.consider_real:
-        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.gold_data_num)
-    args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
-    print(f"{args.accumulate_sampels=}")
-
-    args.model_name_sample = f'{args.task_name}___{args.llms[0]}_{args.num_use_samples_inner[0]}'
-    for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
-        args.model_name_sample += f'__{_model}_{num_samples_inner}'
-
-    print(f"{args.syn_data_path=}")
-    if args.syn_data_path != None:
-        SYN_DATA_PATH = args.syn_data_path
-        print(f"{SYN_DATA_PATH}")
-
-    save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
-
-    ############################### caldulate and save ################################
-    if 'bert' in args.small_model_name:
-        init_model = BertModel.from_pretrained(MODEL_PATH[args.small_model_name])
-        args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
-    elif 'sentence' in args.small_model_name:
-        embedding_model = SentenceTransformer(MODEL_PATH[args.small_model_name])
-
-    train_data_list, train_iter_list = load_data(args, batch_size=8, backward_batch_size=1000, device=args.device, gold_data_path=f'./data/{args.task_name}/std/', syn_data_path=SYN_DATA_PATH, vectors=None, use_tree=False, num_use_samples_inner=args.num_use_samples_inner, num_use_samples_outer=100, shuffle_train=True)
-    print(f"{len(train_data_list)=}, {len(train_iter_list)=}")
-    embedding_list = []
-    label_list = []
-    for i in range(len(train_data_list)):
-        _embeddings, _labels = get_embedding(args, init_model, train_iter_list[i])
-        embedding_list.append(_embeddings)
-        label_list.append(_labels)
-    # embeddings = torch.cat(embedding_list,dim=0).cpu().numpy()
-    embeddings = np.concatenate(embedding_list, axis=0)
-    labels = np.concatenate(label_list,axis=0)
-    print(f"{embeddings.shape=}, {labels.shape=}")
-    embeddings = embeddings.reshape(embeddings.shape[0],-1)
-    
-    tsne = TSNE(n_components=2, random_state=42)
-    embeddings_2d = tsne.fit_transform(embeddings)
-    if not os.path.exists('./figure/distribution/embeddings/'):
-        os.makedirs('./figure/distribution/embeddings/')
-    # np.savez(f'./figure/distribution/embeddings/{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels)
-    np.savez(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels) # currently without test
-    
-    # # data = np.load(f'./figure/distribution/embeddings/{args.model_name_sample}.npz')
-    # data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}.npz')
-    # embeddings_2d = data['embeddings_2d']
-    # embeddings = data['embeddings']
-    # labels = data['labels']
-    # tsne = TSNE(n_components=2, random_state=42)
-    # embeddings_2d = tsne.fit_transform(embeddings[:int(args.accumulate_sampels[-1])])
-    # # np.savez(f'./figure/distribution/embeddings/withoutest_{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings[:int(args.accumulate_sampels[-1])], labels=labels[:int(args.accumulate_sampels[-1])])
-    # np.savez(f'./figure/distribution/embeddings/{save_type}_withoutest_{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings[:int(args.accumulate_sampels[-1])], labels=labels[:int(args.accumulate_sampels[-1])])
-    ############################### caldulate and save ################################
-
-    # assert 1 == 0
-
-    data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz')
-    # data = np.load(f'./figure/distribution/embeddings/withoutest_{args.model_name_sample}.npz')
-    # data = np.load(f'./figure/distribution/temp.npz')
-    embeddings_2d = data['embeddings_2d']
-    embeddings = data['embeddings']
-    labels = data['labels']
-    label_unique_values, counts = np.unique(labels, return_counts=True)
-    # print(f"{label_unique_values=}")
-    print(embeddings.shape, type(embeddings))
-    print(labels.shape, type(labels))
-
-    embeddings_label = {} # key=label, value=list of embeddings belonging to this label from different LLMs
-    for ir, label in enumerate(label_unique_values):
-        # print(f"{ir=}, {label=}")
-        embeddings_label[label] = []
-    for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
-        # samples in the range: args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]
-        # but should be the end of the list with i==args.len_LLM
-        for ir, label in enumerate(label_unique_values):
-            if i < args.len_LLM:
-                _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]==label)
-                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]][_index]
-            else:
-                _index = (labels[args.accumulate_sampels[i]:]==label)
-                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
-            # print(_index, type(_index), len(_index))
-            # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
-            embeddings_label[label].append(_embeddings_of_this_label)
-
-    # for i1 in range(args.len_LLM):
-    #     for i2 in range(i1, args.len_LLM):
-    #         mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1]+1000], embeddings[args.accumulate_sampels[i2]:args.accumulate_sampels[i2]+1000], discrete_features=[False])
-    #         # mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]], embeddings[args.accumulate_sampels[i2]:args.accumulate_sampels[i2+1]], discrete_features=[False])
-    #         print(f"syn #{args.llms[i1]}, syn #{args.llms[i2]}, MI={mutual_info}")
-    # for i1 in range(args.len_LLM):
-    #     mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1]+1000], embeddings[args.accumulate_sampels[-1]:args.accumulate_sampels[-1]+1000], discrete_features=[False])
-    #     # mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]], embeddings[args.accumulate_sampels[-1]:], discrete_features=[False])
-    #     print(f"syn #{args.llms[i1]}, golden dataset, MI={mutual_info}")
-
-    # assert 1 == 0
-    
-    args.accumulate_sampels = torch.cat((args.accumulate_sampels, torch.tensor([labels.shape[0]]).to(args.device)), dim=0)
-
+def plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts):
     # Define colors and markers for each class
     # colors = ['r', 'g', 'b']  # Red, Green, Blue
     # markers = ['o', '^', 's']  # Circle, Triangle, Square
@@ -734,6 +610,7 @@ if __name__ == "__main__":
         print(f'./figure/distribution/2D/step{i_step}_{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png')
         plt.savefig(f'./figure/distribution/2D/step{i_step}_{save_type}_{"with" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png',dpi=200)
 
+
     # # Plot the 2D scatter plot, with test dataset, consider label
     # # fig = plt.figure(figsize=(8, 6))
     # nrow = len(label_unique_values)
@@ -778,3 +655,387 @@ if __name__ == "__main__":
     # plt.legend()
     # plt.tight_layout()
     # plt.savefig(f'./figure/distribution/3D/{args.model_name_sample}.png',dpi=200)
+
+
+def calculate_KL(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values):
+    if args.consider_real:
+        # as the real sample size is small, decrease the embedding dimention
+        pca = PCA(n_components=4, random_state=42)
+        embeddings_40d = pca.fit_transform(embeddings)
+        if not os.path.exists(f'./figure/distribution/embeddings/4d/{args.model_name_sample}/'):
+            os.makedirs(f'./figure/distribution/embeddings/4d/{args.model_name_sample}/')
+        # np.savez(f'./figure/distribution/embeddings/{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels)
+        np.savez(f'./figure/distribution/embeddings/4d/{args.model_name_sample}/{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz', embeddings_40d=embeddings_40d, embeddings=embeddings, labels=labels) # currently without test
+        embeddings = embeddings_40d
+        
+        embeddings = np.asanyarray(embeddings_40d)
+        # embeddings = np.asanyarray(embeddings_2d)
+
+        total_kl, within_class_kl = {}, {}
+        for i_step in range(1,args.steps+1):
+            # current_step_embeddings = []
+            # current_step_labels = []
+            # for i in range(args.len_LLM+1):
+            #     if i < args.len_LLM:
+            #         current_step_embeddings.append(np.array(embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]))
+            #         current_step_labels.append(labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))])
+            #     else:
+            #         current_step_embeddings.append(np.array(embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :]))
+            #         current_step_labels.append(labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]])
+            # current_step_embeddings = np.concatenate(current_step_embeddings, axis=0)
+            # current_step_labels = np.concatenate(current_step_labels, axis=0)
+
+            embeddings_label = [{} for _ in range((args.len_LLM+1 if args.consider_real else args.len_LLM))] # key=label, value=list of embeddings belonging to this label from different LLMs
+            for ir, label in enumerate(label_unique_values):
+                # print(f"{ir=}, {label=}")
+                for _embeddings_label_for_each_model in embeddings_label:
+                    _embeddings_label_for_each_model[label] = []
+            for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+                # samples in the range: args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]
+                # but should be the end of the list with i==args.len_LLM
+                for ir, label in enumerate(label_unique_values):
+                    if i < args.len_LLM:
+                        _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                    else:
+                        _index = (labels[args.accumulate_sampels[i]:]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                    # print(_index, type(_index), len(_index))
+                    # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
+                    embeddings_label[i][label] = _embeddings_of_this_label
+                print(embeddings_label[i])
+
+            total_kl[int(i_step-1)], within_class_kl[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
+            real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            for i in range(args.len_LLM):
+                # ############# total_kl calculation #############
+                temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
+                min_values = np.minimum(temp_embeddings.min(axis=0), real_embeddings.min(axis=0))
+                max_values = np.maximum(temp_embeddings.max(axis=0), real_embeddings.max(axis=0))
+                print(f"Min values: {min_values}, Max values: {max_values}")
+                
+                # Define the number of grid points for each dimension
+                num_points = 32  # You can adjust this to control the resolution of the grid
+                # # Create a grid that spans from min_values to max_values
+                # x = np.linspace(min_values[0], max_values[0], num_points)
+                # y = np.linspace(min_values[1], max_values[1], num_points)
+                # # Create 2D grid
+                # X, Y = np.meshgrid(x, y)
+                # # Stack the grid points into a 2D array of shape (2, num_points * num_points)
+                # grid_points = np.vstack([X.ravel(), Y.ravel()])
+
+                # Create a grid that spans from min_values to max_values
+                axis_grid = []
+                for i_axis in range(len(max_values)):
+                    axis_grid.append(np.linspace(min_values[i_axis], max_values[i_axis], num_points))
+                # Create the grid of required dimension, here 40
+                Axis = np.meshgrid(*axis_grid)
+                # Stack the grid points into a 40D array of shape (40, num_points * num_points)
+                grid_points = np.vstack([axis.ravel() for axis in Axis])
+                print(f"grid_points preparation done")
+
+                # KDE for each set
+                kde1 = gaussian_kde(temp_embeddings.T)  # KDE for set 1
+                kde2 = gaussian_kde(real_embeddings.T)  # KDE for set 2
+                # Evaluate the KDEs on the shared grid
+                p = kde1(grid_points)  # Evaluate KDE for set 1 on the grid
+                q = kde2(grid_points)  # Evaluate KDE for set 2 on the grid
+                p += EPSILON # avoid devision of zero
+                q += EPSILON # avoid devision of zero
+                # Normalize the KDE outputs to make them proper probability distributions
+                p /= p.sum()  # Normalize p
+                q /= q.sum()  # Normalize q
+                print(f"{type(p)=}, {type(q)=}")
+
+                # Compute the pointwise average distribution M
+                m = 0.5 * (p + q)
+                # Compute KL divergence for JSD
+                kl_p_m = entropy(p, m)  # KL(P || M)
+                kl_q_m = entropy(q, m)  # KL(Q || M)
+                # Jensen-Shannon Divergence
+                jsd = 0.5 * (kl_p_m + kl_q_m)
+                print(f'Jensen-Shannon Divergence: {jsd}')
+
+                total_kl[int(i_step-1)][i] = jsd
+                # ############# total_kl calculation #############
+                
+                # ############# within_class_kl calculation #############
+                unique_label_counter = 0
+                for unique_label in embeddings_label[-1]:
+                    print(f"{unique_label=}, {len(embeddings_label[i][unique_label])=}, {len(embeddings_label[-1][unique_label])=}")
+                    if len(embeddings_label[-1][unique_label]) > 0:
+                        if len(embeddings_label[i][unique_label]) == 0:
+                            within_class_kl[int(i_step-1)][i] = float('inf')
+                            break
+                        else:
+                            unique_label_counter += 1
+                            min_values = np.minimum(embeddings_label[i][unique_label].min(axis=0), embeddings_label[-1][unique_label].min(axis=0))
+                            max_values = np.maximum(embeddings_label[i][unique_label].max(axis=0), embeddings_label[-1][unique_label].max(axis=0))
+                            print(f"Min values: {min_values}, Max values: {max_values}")
+                            
+                            # Define the number of grid points for each dimension
+                            num_points = 32  # You can adjust this to control the resolution of the grid
+                            # # Create a grid that spans from min_values to max_values
+                            # x = np.linspace(min_values[0], max_values[0], num_points)
+                            # y = np.linspace(min_values[1], max_values[1], num_points)
+                            # # Create 2D grid
+                            # X, Y = np.meshgrid(x, y)
+                            # # Stack the grid points into a 2D array of shape (2, num_points * num_points)
+                            # grid_points = np.vstack([X.ravel(), Y.ravel()])
+
+                            # Create a grid that spans from min_values to max_values
+                            axis_grid = []
+                            for i_axis in range(len(max_values)):
+                                axis_grid.append(np.linspace(min_values[i_axis], max_values[i_axis], num_points))
+                            # Create the grid of required dimension, here 40
+                            Axis = np.meshgrid(*axis_grid)
+                            # Stack the grid points into a 40D array of shape (40, num_points * num_points)
+                            grid_points = np.vstack([axis.ravel() for axis in Axis])
+
+                            # KDE for each set
+                            kde1 = gaussian_kde(embeddings_label[i][unique_label].T)  # KDE for set 1
+                            kde2 = gaussian_kde(embeddings_label[-1][unique_label].T)  # KDE for set 2
+                            # Evaluate the KDEs on the shared grid
+                            p = kde1(grid_points)  # Evaluate KDE for set 1 on the grid
+                            q = kde2(grid_points)  # Evaluate KDE for set 2 on the grid
+                            p += EPSILON # avoid devision of zero
+                            q += EPSILON # avoid devision of zero
+                            # Normalize the KDE outputs to make them proper probability distributions
+                            p /= p.sum()  # Normalize p
+                            q /= q.sum()  # Normalize q
+                            print(f"{type(p)=}, {type(q)=}")
+
+                            # Compute the pointwise average distribution M
+                            m = 0.5 * (p + q)
+                            # Compute KL divergence for JSD
+                            kl_p_m = entropy(p, m)  # KL(P || M)
+                            kl_q_m = entropy(q, m)  # KL(Q || M)
+                            # Jensen-Shannon Divergence
+                            jsd = 0.5 * (kl_p_m + kl_q_m)
+                            print(f'Jensen-Shannon Divergence for label#{unique_label} is: {jsd}')
+
+                            within_class_kl[int(i_step-1)][i] += jsd
+                    if within_class_kl[int(i_step-1)][i] != float('inf'):
+                        within_class_kl[int(i_step-1)][i] = within_class_kl[int(i_step-1)][i] / unique_label_counter
+                # ############# within_class_kl calculation #############
+        else:
+            print(f"[WARNING] Real samples not considered, no KL can be calculated")
+        
+    return total_kl, within_class_kl
+
+
+def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values):
+    if args.consider_real:
+
+        total_l2, within_class_l2 = {}, {}
+        total_cos, within_class_cos = {}, {}
+        for i_step in range(1,args.steps+2):
+            embeddings_label = [{} for _ in range((args.len_LLM+1 if args.consider_real else args.len_LLM))] # key=label, value=list of embeddings belonging to this label from different LLMs
+            for ir, label in enumerate(label_unique_values):
+                # print(f"{ir=}, {label=}")
+                for _embeddings_label_for_each_model in embeddings_label:
+                    _embeddings_label_for_each_model[label] = []
+            for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+                # samples in the range: args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]
+                # but should be the end of the list with i==args.len_LLM
+                for ir, label in enumerate(label_unique_values):
+                    if i < args.len_LLM:
+                        _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                    else:
+                        _index = (labels[args.accumulate_sampels[i]:]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                    # print(_index, type(_index), len(_index))
+                    # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
+                    embeddings_label[i][label] = _embeddings_of_this_label
+                print(embeddings_label[i])
+
+            total_l2[int(i_step-1)], within_class_l2[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
+            total_cos[int(i_step-1)], within_class_cos[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
+            real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            for i in range(args.len_LLM):
+                # ############# total_l2 and total_cos calculation #############
+                temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
+                print(type(temp_embeddings), type(real_embeddings))
+                l2_distances = cdist(temp_embeddings, real_embeddings, metric='euclidean')
+                cos_distances = cdist(temp_embeddings, real_embeddings, metric='cosine')
+                total_l2[int(i_step-1)][i] = l2_distances.sum()/l2_distances.size
+                total_cos[int(i_step-1)][i] = cos_distances.sum()/cos_distances.size
+                print(f"{l2_distances=}, {cos_distances=}, {total_l2[int(i_step-1)][i]=}, {total_cos[int(i_step-1)][i]=}")
+                # ############# total_kl calculation #############
+                
+                # ############# within_class_kl calculation #############
+                unique_label_counter = 0
+                for unique_label in embeddings_label[-1]:
+                    print(f"{unique_label=}, {len(embeddings_label[i][unique_label])=}, {len(embeddings_label[-1][unique_label])=}")
+                    if len(embeddings_label[-1][unique_label]) > 0:
+                        if len(embeddings_label[i][unique_label]) == 0:
+                            within_class_l2[int(i_step-1)][i] = float('inf')
+                            within_class_cos[int(i_step-1)][i] = float('inf')
+                            break
+                        else:
+                            unique_label_counter += 1
+
+                            l2_distances = cdist(embeddings_label[i][unique_label], embeddings_label[-1][unique_label], metric='euclidean')
+                            cos_distances = cdist(embeddings_label[i][unique_label], embeddings_label[-1][unique_label], metric='cosine')
+                            within_class_l2[int(i_step-1)][i] += l2_distances.sum()/l2_distances.size
+                            within_class_cos[int(i_step-1)][i] += cos_distances.sum()/cos_distances.size
+                            print(f"{l2_distances=}, {cos_distances=}, {within_class_l2[int(i_step-1)][i]=}, {within_class_cos[int(i_step-1)][i]=}")
+                    if within_class_l2[int(i_step-1)][i] != float('inf'):
+                        within_class_l2[int(i_step-1)][i] = within_class_l2[int(i_step-1)][i] / unique_label_counter
+                    if within_class_cos[int(i_step-1)][i] != float('inf'):
+                        within_class_cos[int(i_step-1)][i] = within_class_cos[int(i_step-1)][i] / unique_label_counter
+                # ############# within_class_kl calculation #############
+        else:
+            print(f"[WARNING] Real samples not considered, no KL can be calculated")
+        
+    return total_l2, within_class_l2, total_cos, within_class_cos
+
+
+
+
+def calculate_and_save_tsne(args):
+    ############################### caldulate and save ################################
+    if 'bert' in args.small_model_name:
+        init_model = BertModel.from_pretrained(MODEL_PATH[args.small_model_name])
+        args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
+    elif 'sentence' in args.small_model_name:
+        embedding_model = SentenceTransformer(MODEL_PATH[args.small_model_name])
+
+    train_data_list, train_iter_list = load_data(args, batch_size=8, backward_batch_size=1000, device=args.device, gold_data_path=f'./data/{args.task_name}/std/', syn_data_path=SYN_DATA_PATH, vectors=None, use_tree=False, num_use_samples_inner=args.num_use_samples_inner, num_use_samples_outer=100, shuffle_train=True)
+    print(f"{len(train_data_list)=}, {len(train_iter_list)=}")
+    embedding_list = []
+    label_list = []
+    for i in range(len(train_data_list)):
+        _embeddings, _labels = get_embedding(args, init_model, train_iter_list[i])
+        embedding_list.append(_embeddings)
+        label_list.append(_labels)
+    # embeddings = torch.cat(embedding_list,dim=0).cpu().numpy()
+    embeddings = np.concatenate(embedding_list, axis=0)
+    labels = np.concatenate(label_list,axis=0)
+    print(f"{embeddings.shape=}, {labels.shape=}")
+    embeddings = embeddings.reshape(embeddings.shape[0],-1)
+    
+    tsne = TSNE(n_components=2, random_state=42)
+    embeddings_2d = tsne.fit_transform(embeddings)
+    if not os.path.exists('./figure/distribution/embeddings/'):
+        os.makedirs('./figure/distribution/embeddings/')
+    # np.savez(f'./figure/distribution/embeddings/{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels)
+    np.savez(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels) # currently without test
+    
+    # # data = np.load(f'./figure/distribution/embeddings/{args.model_name_sample}.npz')
+    # data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}.npz')
+    # embeddings_2d = data['embeddings_2d']
+    # embeddings = data['embeddings']
+    # labels = data['labels']
+    # tsne = TSNE(n_components=2, random_state=42)
+    # embeddings_2d = tsne.fit_transform(embeddings[:int(args.accumulate_sampels[-1])])
+    # # np.savez(f'./figure/distribution/embeddings/withoutest_{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings[:int(args.accumulate_sampels[-1])], labels=labels[:int(args.accumulate_sampels[-1])])
+    # np.savez(f'./figure/distribution/embeddings/{save_type}_withoutest_{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings[:int(args.accumulate_sampels[-1])], labels=labels[:int(args.accumulate_sampels[-1])])
+    ############################### caldulate and save ################################
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='summary generator')
+    parser.add_argument("--small_model_name", type=str, default='bert-base-uncased', help="The small Transformer language model to use.")
+    parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
+    parser.add_argument('--num_use_samples_inner', default=[200000,200000], nargs='+', type=int)
+    parser.add_argument('--syn_data_path', default=None, type=str)
+    parser.add_argument('--task_name', default="rte", type=str)
+    parser.add_argument('--gpu', default=0, type=int, help='gpu device id')
+    parser.add_argument('--seed', default=12345, type=int, help='random seed')
+    parser.add_argument('--consider_real', default=False, type=bool, help='whether considers real test data in distribution visalization')
+    parser.add_argument('--gold_data_num', default=1000, type=int, help='how much real data to consider')
+    parser.add_argument('--steps', default=4, type=int, help='how many accumulation iterations are done')
+    args = parser.parse_args()
+
+    set_seed(args.seed)
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    torch.cuda.set_device(args.gpu)  
+    args.device = device
+    torch.cuda.empty_cache()
+
+    args.len_LLM = len(args.llms)
+    assert args.len_LLM == len(args.num_use_samples_inner), "Must specify the number of inner samples used for every LLM's generated data"
+    args.accumulate_sampels = [0]
+    for _i in range(args.len_LLM):
+        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.num_use_samples_inner[_i])
+    if args.consider_real:
+        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.gold_data_num)
+    args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
+    print(f"{args.accumulate_sampels=}")
+
+    args.model_name_sample = f'{args.task_name}___{args.llms[0]}_{args.num_use_samples_inner[0]}'
+    for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
+        args.model_name_sample += f'__{_model}_{num_samples_inner}'
+
+    print(f"{args.syn_data_path=}")
+    if args.syn_data_path != None:
+        SYN_DATA_PATH = args.syn_data_path
+        print(f"{SYN_DATA_PATH}")
+
+    save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
+
+    # ############## calculate and save tsne ##############
+    # calculate_and_save_tsne(args)
+    # ############## calculate and save tsne ##############
+
+    # assert 1 == 0
+
+    data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz')
+    # data = np.load(f'./figure/distribution/embeddings/withoutest_{args.model_name_sample}.npz')
+    # data = np.load(f'./figure/distribution/temp.npz')
+    embeddings_2d = data['embeddings_2d']
+    embeddings = data['embeddings']
+    labels = data['labels']
+    label_unique_values, counts = np.unique(labels, return_counts=True)
+    # print(f"{label_unique_values=}")
+    print(embeddings.shape, type(embeddings))
+    print(labels.shape, type(labels))
+
+    embeddings_label = [{} for _ in range((args.len_LLM+1 if args.consider_real else args.len_LLM))] # key=label, value=list of embeddings belonging to this label from different LLMs
+    for ir, label in enumerate(label_unique_values):
+        # print(f"{ir=}, {label=}")
+        for _embeddings_label_for_each_model in embeddings_label:
+            _embeddings_label_for_each_model[label] = []
+    for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+        # samples in the range: args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]
+        # but should be the end of the list with i==args.len_LLM
+        for ir, label in enumerate(label_unique_values):
+            if i < args.len_LLM:
+                _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]==label)
+                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]][_index]
+            else:
+                _index = (labels[args.accumulate_sampels[i]:]==label)
+                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+            # print(_index, type(_index), len(_index))
+            # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
+            embeddings_label[i][label].append(_embeddings_of_this_label)
+
+    # for i1 in range(args.len_LLM):
+    #     for i2 in range(i1, args.len_LLM):
+    #         mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1]+1000], embeddings[args.accumulate_sampels[i2]:args.accumulate_sampels[i2]+1000], discrete_features=[False])
+    #         # mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]], embeddings[args.accumulate_sampels[i2]:args.accumulate_sampels[i2+1]], discrete_features=[False])
+    #         print(f"syn #{args.llms[i1]}, syn #{args.llms[i2]}, MI={mutual_info}")
+    # for i1 in range(args.len_LLM):
+    #     mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1]+1000], embeddings[args.accumulate_sampels[-1]:args.accumulate_sampels[-1]+1000], discrete_features=[False])
+    #     # mutual_info = mutual_info_regression(embeddings[args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]], embeddings[args.accumulate_sampels[-1]:], discrete_features=[False])
+    #     print(f"syn #{args.llms[i1]}, golden dataset, MI={mutual_info}")
+
+    # assert 1 == 0
+    
+    # total_kl, within_class_kl = calculate_KL(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    total_l2, within_class_l2, total_cos, within_class_cos = calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    print(f"KL results: {total_l2=}, {within_class_l2=}, {total_cos=}, {within_class_cos=}")
+
+    # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
+
+

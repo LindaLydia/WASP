@@ -1,0 +1,2 @@
+args.accumulate_sampels=tensor([     0, 200000, 400000], device='cuda:0')
+args.syn_data_path=None

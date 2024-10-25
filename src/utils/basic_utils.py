@@ -201,6 +201,23 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
     return total_dataset
      
 
+def split_gold_data_for_parties(args, total_data):
+    if args.gold_party_num == 1:
+        data_list = [total_data]
+    else:
+        data_list = []
+        if args.gold_split_dirichlet == 0.0:
+            # assert args.num_classes == args.gold_party_num, ""
+            for i_label in range(args.num_classes):
+                related_data_idx = torch.nonzero(total_data.label == i_label, as_tuple=True)[0]
+                _dataset = TokenizedDataset(
+                    file_path=(''),
+                )
+                _dataset.clear_and_copy_dataset([total_data], list(related_data_idx.cpu().numpy()), 1, new_idx=True)
+                data_list.append(_dataset)
+    return data_list
+
+
 def load_iters(batch_size=32, device="cpu", data_path='data', vectors=None, limit=100000):
     TEXT = data.Field(lower=True, batch_first=True, include_lengths=True)
     LABEL = data.LabelField(batch_first=True)
