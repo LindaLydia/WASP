@@ -1291,7 +1291,11 @@ class LLMWrapper():
                 self._model.parallelize()
             # self._model.to('cuda:1')
         elif 'llama' in model_name or 'vicuna' in model_name:
-            self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
+            if not 'llama-3' in model_name:
+                self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
+            else:
+                print('using float-16')
+                self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16) #
             print(self._model.config)
             self.max_position_embeddings = self._model.config.max_position_embeddings
             if not 'llama-3' in model_name:

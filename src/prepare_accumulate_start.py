@@ -18,8 +18,8 @@ model_names = ['chatglm3-6b-base', 'llama-3-8b-chinese-chat'] #
 
 # target_folder = ['100_20', '1000_200', '1000_500', '6000_1200']
 # target_samples = [20, 200, 500, 1200]
-target_folder = ['4000_800', '8000_1600']
-target_samples = [800, 1600]
+target_folder = ['4000_800', '8000_1600', '20000_4000']
+target_samples = [800, 1600, 4000]
 
 
 for model in model_names:
