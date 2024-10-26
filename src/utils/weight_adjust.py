@@ -163,6 +163,7 @@ def weight_decay(args, current_outer_iter_trained_model, train_data, theta_mappe
             logits_for_model_data[i][j] = logtis_per_sample
             if type(train_data[j].is_syn) == type(['']):
                 train_data[j].is_syn = torch.tensor(train_data[j].is_syn, dtype=torch.long)
+            print(f"{theta_mapped[j].shape=}, {error_for_data[j].shape=}, {len(train_data[j])=}, {torch.tensor(train_data[j].is_syn).shape=}")
             total_error_for_real_data = torch.sum(theta_mapped[j] * error_for_data[j] * (torch.ones((len(train_data[j]),)).to(args.device) - torch.tensor(train_data[j].is_syn).long().to(args.device)))
             total_weight_for_real_data = torch.sum(theta_mapped[j] * (torch.ones((len(train_data[j]),)).to(args.device) - train_data[j].is_syn.long().to(args.device)))
             weighted_average_error_for_real_data = total_error_for_real_data / total_weight_for_real_data

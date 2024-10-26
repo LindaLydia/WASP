@@ -341,9 +341,9 @@ def find_nearest_syn_samples_multi_data_party(args, train_data, gold_loader, cou
 
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
     SIGMA = args.voting_dp_sigma / 100
-    for i_party in range(len(nearest_sample_voting_per_party)):
-        nearest_sample_voting_per_party[i_party] += np.random.standard_normal(size=nearest_sample_voting_per_party[i_party])*SIGMA
     nearest_sample_voting_per_party = np.asarray(nearest_sample_voting_per_party)
+    for i_party in range(len(nearest_sample_voting_per_party)):
+        nearest_sample_voting_per_party[i_party] += np.random.standard_normal(size=nearest_sample_voting_per_party[i_party].shape)*SIGMA
     nearest_sample_voting = np.sum(nearest_sample_voting_per_party, axis=0)
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
 
@@ -476,9 +476,9 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
 
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
     SIGMA = args.voting_dp_sigma / 100
-    for i_party in range(len(nearest_sample_voting_per_party)):
-        nearest_sample_voting_per_party[i_party] += np.random.standard_normal(size=nearest_sample_voting_per_party[i_party])*SIGMA
     nearest_sample_voting_per_party = np.asarray(nearest_sample_voting_per_party)
+    for i_party in range(len(nearest_sample_voting_per_party)):
+        nearest_sample_voting_per_party[i_party] += np.random.standard_normal(size=nearest_sample_voting_per_party[i_party].shape)*SIGMA
     nearest_sample_voting = np.sum(nearest_sample_voting_per_party, axis=0)
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
 

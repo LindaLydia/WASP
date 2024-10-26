@@ -45,6 +45,7 @@ from utils.distance_calculation import *
 from utils.reweight_train import *
 from utils.sample_selection import *
 from utils.bert_dataset import *
+from utils.FL import *
 from utils.weight_adjust import weight_decay, model_importance_estimation
 from utils.kd_functions import kd_label, kd_label_iter, kd_label_dataset, kd_label_entropy, kd_label_entropy_aware, kd_label_aware
 from utils.mlp import *
@@ -2004,11 +2005,9 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     total_valid_data = merge_all_dataset(args, small_valid_data)
     theta_total = []
     if args.use_sigmoid:
-        for i in range(len(small_train_data)):
-            theta_total.append(torch.full([len(total_small_train_data)], 0, dtype=torch.float, device=device)) #, requires_grad=True
+        theta_total.append(torch.full([len(total_small_train_data)], 0, dtype=torch.float, device=device)) #, requires_grad=True
     else:
-        for i in range(len(small_train_data)):
-            theta_total.append(torch.full([len(total_small_train_data)], args.init_theta, dtype=torch.float, device=device)) #, requires_grad=True
+        theta_total.append(torch.full([len(total_small_train_data)], args.init_theta, dtype=torch.float, device=device)) #, requires_grad=True
     if args.optim =='Adam':
         theta_total_opt = Adam(theta_total, lr=args.outer_lr)
     elif args.optim =='SGD':
@@ -2137,9 +2136,9 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 temp = 1
             if args.use_sigmoid:
             # if args.use_sigmoid and outer_iter==0.0:
-                theta_total_mapped[i] = torch.sigmoid(theta_total[i]/temp)
+                theta_total_mapped[0] = torch.sigmoid(theta_total[0]/temp)
             else:
-                theta_total_mapped[i] = theta_total[i]
+                theta_total_mapped[0] = theta_total[0]
             if not args.disable_outer_scheduler:
                 assign_learning_rate(theta_total_opt, 0.5 * (1 + np.cos(np.pi * (_outer_iter+args.max_outer_iter*i) / args.max_outer_iter*args.len_LLM)) * args.outer_lr)
 
@@ -2181,7 +2180,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                         wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
             if 'Adjust' in args.fuse_dataset_weight:
-                theta_total_mapped, _depricated_model_total_acc = weight_decay(args, [current_outer_iter_trained_model[-1]], total_small_train_data, theta_total_mapped, beta=args.BETA, _type=args.weight_adjust_criterial, num_models=1)
+                theta_total_mapped, _depricated_model_total_acc = weight_decay(args, [current_outer_iter_trained_model[-1]], [total_small_train_data], theta_total_mapped, beta=args.BETA, _type=args.weight_adjust_criterial, num_models=1)
                 theta_total[0] = copy.deepcopy(theta_total_mapped[0])
                 theta_total_score = copy.deepcopy(theta_total[0])
                 best_theta_total[0]=theta_total_score
@@ -2197,7 +2196,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         current_outer_iter_trained_more_steps_model_iter0_after_gold = []
         current_outer_iter_trained_model_after_gold = []
         current_outer_iter_trained_more_steps_model_after_gold = []
-        gold_theta = [torch.full([len(gold_iter.dataset)], 0.5, dtype=torch.float, device=device) for _ in range(args.gold_party_num)] #, requires_grad=True
+        gold_theta = [torch.full([len(gold_iter[_i_party].dataset)], 0.5, dtype=torch.float, device=device) for _i_party in range(args.gold_party_num)] #, requires_grad=True
         for i_party in range(args.gold_party_num):
             print(f"training STM with gold data from data party #{i_party}")
             diverged = True # diverged==True means loss==nan, which means the training failed

@@ -179,6 +179,7 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
         total_dataset.attention_mask = [] # clear all the samples
         total_dataset.label = [] # clear all the samples
         total_dataset.idx = [] # clear all the samples
+        total_dataset.is_syn = [] # clear all the samples
         for row in range(args.len_LLM):
             # accumulate_sampels.append(accumulate_sampels[-1]+len(datasets[row].idx))
             idx_list = [_i for _i in range(len(datasets[row].idx))]
@@ -195,6 +196,7 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
                 total_dataset.attention_mask += [datasets[row].attention_mask[column]]
                 total_dataset.label += [datasets[row].label[column]]
                 total_dataset.idx += [_id]
+                total_dataset.is_syn += [datasets[row].is_syn[column]]
                 _id += 1
     # accumulate_sampels = torch.tensor(accumulate_sampels, dtype=torch.long).to(args.device)
     # ############### prepare total_data ###############
