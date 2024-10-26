@@ -11,7 +11,7 @@ def FedAVG(args, model_list, aggregation_weights=None):
     if aggregation_weights == None:
         aggregation_weights = [(1/len(model_list))]*len(model_list)
     
-    fedAVG_model = copy.deep_copy(args.fused_model)
+    fedAVG_model = copy.deepcopy(args.fused_model)
     update_state = OrderedDict()
 
     for k, model in enumerate(model_list):
