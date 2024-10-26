@@ -2,7 +2,7 @@
 try:
     from torchtext.legacy.data import Iterator, BucketIterator
     from torchtext.legacy import data
-except:
+except ImportError:
     from torchtext.data import Iterator, BucketIterator
     from torchtext import data
 # from torchtext.legacy.data import Iterator, BucketIterator
