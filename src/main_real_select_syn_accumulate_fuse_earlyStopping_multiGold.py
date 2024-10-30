@@ -2016,7 +2016,39 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         _theta.grad = torch.zeros_like(_theta)
     best_theta_total = theta_total # <list>
 
-    
+    if args.i_step == 0:
+        # evaluate w/o syn data setting
+        gold_theta = [torch.full([len(gold_iter[_i_party].dataset)], 0.5, dtype=torch.float, device=device) for _i_party in range(args.gold_party_num)] #, requires_grad=True
+        current_outer_iter_trained_more_steps_model_after_gold = []
+        for i_party in range(args.gold_party_num):
+            print(f"training STM with gold data from data party #{i_party}")
+            diverged = True # diverged==True means loss==nan, which means the training failed
+            while diverged:
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, init_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
+                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, init_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
+            # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+            # print(f"[debug] {args.use_dev_outer}")
+            if args.stochastic_outer and args.subset_outer:
+                if args.use_dev_outer:
+                    valid_loader = construct_outer_subloader(args, dev_data_all)
+                else:
+                    valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+            current_outer_iter_trained_more_steps_model_after_gold.append(model_copy_converged_ft)
+            test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+            print(f"train using only gold with data party #{i_party}: #iter=-1, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+            logging.info(f"train using only gold with data party #{i_party}: #iter=-1, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+            if args.wandb:
+                wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # ###### FedAVG with the L model trained using gold data from each party ######
+        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold)
+        test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
+        print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        if args.wandb:
+            wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # ###### FedAVG with the L model trained using gold data from each party ######
+
     # for outer_iter in range(args.max_outer_iter):
     for outer_iter in range(1):
     # for outer_iter in range(5):
@@ -2434,10 +2466,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     total_valid_data = merge_all_dataset(args, small_valid_data)
                     if 'CartographyWithReal' in args.gen_sample_select:
                         for im in range(args.len_LLM):
-                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold, small_train_data[im])
+                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold, small_train_data[im], plm_name=args.llms[im])
                     else:
                         for im in range(args.len_LLM):
-                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
+                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im], plm_name=args.llms[im])
                 print(f"{confidence_score=}, {variability_score=}")
                 top_ambiguous_easy_to_learn_idx, selected_indices = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
                 logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")

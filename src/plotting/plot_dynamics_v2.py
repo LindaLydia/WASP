@@ -400,6 +400,65 @@ def read_training_dynamics_withoutcorrectness(metric_file):
     return train_dynamics, models, samples, accumulated_sample_count, NUM_MODELS, task_name
 
 
+def read_training_dynamics_together(metric_file):
+    
+    """
+    ./results/multiGold_eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_0.0_CartographyWithReal_sampling/
+    gold_100_2_0.0/bert-base-uncased/sentence-t5-base/
+    0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/
+    0_1_init200_steps4_unbalance_temp3/fewshotK8_15_0.5/imdb/
+    gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/
+    12345/iter0_variability_and_voting.pth"
+
+    """
+
+    """
+    Given path to logged training dynamics, merge stats across epochs.
+    Returns:
+    - Dict between ID of a train instances and its gold label, and the list of logits across epochs.
+    """
+    train_dynamics = {}
+
+    task_name = metric_file.split('/')[-4]
+    models_samples = metric_file.split('/')[-3]
+    assert '__' in models_samples, f"{models_samples=}"
+    models_samples = models_samples.split('__')
+    models_samples = [item.split('_') for item in models_samples]
+    models = [item[0] for item in models_samples]
+    samples = [int(item[1]) for item in models_samples]
+    accumulated_sample_count = [0]
+    for sample_num in samples:
+        accumulated_sample_count.append(accumulated_sample_count[-1]+sample_num)
+    NUM_MODELS = len(models)
+
+    for im, model in enumerate(models):
+        train_dynamics[model] = {}
+    
+        _correctness, _prediction, _logits, _confidence, _variability = torch.load(metric_file.format(model))
+        print(f"{_correctness.shape=}")
+        _correctness = torch.sum(_correctness, dim=0)
+        print(f"{_correctness.shape=}")
+        print(f"{_correctness=}")
+        # print(f"{_confidence=}, {_variability=}")
+        # print(f"{len(_confidence)=}, {len(_variability)=}")
+
+        # correctness = np.asarray(_correctness[im])
+        # prediction = np.asarray(_prediction[im])
+        # logits = np.asarray(_logits[im])
+        # confidence = np.asarray(_confidence[im])
+        # variability = np.asarray(_variability[im])
+
+        correctness =  _correctness.cpu().numpy()
+        confidence =  _confidence.cpu().numpy()
+        variability =  _variability.cpu().numpy()
+
+        dataframe_dict = {"variability":variability, "confidence":confidence, "correctness": correctness, "guid":np.arange(0,len(confidence),1)}
+        train_dynamics[model] = pd.DataFrame(dataframe_dict)
+
+    return train_dynamics, models, samples, accumulated_sample_count, NUM_MODELS, task_name
+
+
+
 def compute_forgetfulness(correctness_trend: List[float]) -> int:
   """
   Given a epoch-wise trend of train predictions, compute frequency with which
@@ -656,7 +715,9 @@ if __name__ == '__main__':
     ###### single model, several epochs ######
     file_path = {
         "imdb": [
-            "./results/multiGold_eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_0.0_CartographyWithReal_sampling/gold_100_2_0.0/bert-base-uncased/sentence-t5-base/0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/0_1_init200_steps4_unbalance_temp3/fewshotK8_15_0.5/imdb/gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/12345/iter0_variability_and_voting.pth"
+            # "./results/multiGold_eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_0.0_CartographyWithReal_sampling/gold_100_2_0.0/bert-base-uncased/sentence-t5-base/0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/0_1_init200_steps4_unbalance_temp3/fewshotK8_15_0.5/imdb/gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/12345/iter0_variability_and_voting.pth",
+            # "/shared/project/PrivateGenerateEnhancement/src/results/multiGold_eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_0.0_CartographyWithReal_sampling/gold_100_2_0.0/bert-base-uncased/sentence-t5-base/0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/0_1_init200_steps4_unbalance_temp3/fewshotK8_15_0.5/imdb/gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/0/correctness_prediction_logits_confidence_variability_for_dynamic.pth",
+            "/shared/project/PrivateGenerateEnhancement/src/results/multiGold_eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_0.0_CartographyWithReal_sampling/gold_100_2_0.0/bert-base-uncased/sentence-t5-base/0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/0_1_init200_steps4_unbalance_temp3/fewshotK8_15_0.5/imdb/gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/0/correctness_prediction_logits_confidence_variability_for_dynamic_{}.pth"
         ],
         "imdb-close-gpt": [
 
@@ -714,7 +775,8 @@ if __name__ == '__main__':
         PLM_names = {'gpt2-xl':'GPT2', 'llama-2-7b-chat-hf':'Llama2', 'vicuna-7b-1.5v':'Vicuna', 'opt-6.7b':'OPT', 'chatglm3-6b-base':'ChatGLM3', 'flan-t5-xl':'Flan-T5', 'gpt-3.5-turbo-instruct':'GPT3.5', 'gpt-4-turbo-preview':'GPT4'}
         for _file_path in file_path:
             print(f"{_file_path=}")
-            train_dy_metrics, plms, samples, accumulated_sample_count, NUM_MODELS, task_name = read_training_dynamics_withoutcorrectness(metric_file=_file_path)
+            # train_dy_metrics, plms, samples, accumulated_sample_count, NUM_MODELS, task_name = read_training_dynamics_withoutcorrectness(metric_file=_file_path)
+            train_dy_metrics, plms, samples, accumulated_sample_count, NUM_MODELS, task_name = read_training_dynamics_together(metric_file=_file_path)
             for plm, sample in zip(plms, samples):                
                 if 'flip' in _file_path:
                     dy_metrics_save_dir = f'./figure/dynamics/record/{sample}/{task_name}/flip/'
