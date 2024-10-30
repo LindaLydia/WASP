@@ -45,6 +45,7 @@ from utils.distance_calculation import *
 from utils.reweight_train import *
 from utils.sample_selection import *
 from utils.bert_dataset import *
+from utils.FL import *
 from utils.weight_adjust import weight_decay, model_importance_estimation
 from utils.kd_functions import kd_label, kd_label_iter, kd_label_dataset, kd_label_entropy, kd_label_entropy_aware, kd_label_aware
 from utils.mlp import *
@@ -167,7 +168,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/'
         train_data, _ = data.TabularDataset.splits(
             path=train_data_path,
             train='train.jsonl',
@@ -346,7 +347,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/train.jsonl') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/train.jsonl'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/train.jsonl'
         train_data = TokenizedDataset(
             file_path=train_data_path,
             text_column='C',
@@ -406,26 +407,29 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
         small_dataset_shuffle=True,
     )
-    gold_data_num = len(gold_data.text)
-    indices = list(range(len(gold_data.text)))
-    random.shuffle(indices)
-    gold_train_valid_pivot_point = int(len(gold_data.text)*args.train_ratio)
-    small_gold_train_data = TokenizedDataset(
-        file_path=(''),
-    )
-    small_gold_train_data.copy_dataset(gold_data, indices[:gold_train_valid_pivot_point], new_idx=True)
-    small_gold_valid_data = TokenizedDataset(
-        file_path=(''),
-    )
-    small_gold_valid_data.copy_dataset(gold_data, indices[gold_train_valid_pivot_point:], new_idx=True)
-    train_data_list.append(gold_data)
-    small_train_data_list.append(small_gold_train_data)
-    small_valid_data_list.append(small_gold_valid_data)
+    gold_data_list = split_gold_data_for_parties(args, gold_data)
+    
+    small_gold_train_data_list, small_gold_valid_data_list = [], []
+    for i_gold in range(args.gold_party_num):
+        indices = list(range(len(gold_data_list[i_gold].text)))
+        random.shuffle(indices)
+        gold_train_valid_pivot_point = int(len(gold_data_list[i_gold].text)*args.train_ratio)
+        small_gold_train_data = TokenizedDataset(
+            file_path=(''),
+        )
+        small_gold_train_data.copy_dataset(gold_data_list[i_gold], indices[:gold_train_valid_pivot_point], new_idx=True)
+        small_gold_valid_data = TokenizedDataset(
+            file_path=(''),
+        )
+        small_gold_valid_data.copy_dataset(gold_data_list[i_gold], indices[gold_train_valid_pivot_point:], new_idx=True)
+    train_data_list = train_data_list + gold_data_list
+    small_train_data_list = small_train_data_list + small_gold_train_data_list
+    small_valid_data_list = small_valid_data_list + small_gold_valid_data_list
 
     print("test dataset")
     test_data = TokenizedDataset(
-        # file_path=(gold_data_path+'test.jsonl'),
-        file_path=(gold_data_path+'test_small.jsonl'),
+        file_path=(gold_data_path+'test.jsonl'),
+        # file_path=(gold_data_path+'test_small.jsonl'),
         text_column='text',
         label_column='label',
         index_column='idx',
@@ -518,7 +522,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
     small_valid_iter_list = [DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_train) for dataset in small_valid_data_list]
     train_iter_backward_list = [DataLoader(dataset, batch_size=backward_batch_size, shuffle=shuffle_train) for dataset in train_data_list]
     dev_iter = DataLoader(dev_data, batch_size=batch_size, shuffle=shuffle_train)
-    gold_iter = DataLoader(gold_data, batch_size=batch_size, shuffle=True)
+    gold_iter = [DataLoader(dataset, batch_size=batch_size, shuffle=True) for dataset in gold_data_list]
     test_iter = DataLoader(test_data, batch_size=batch_size, shuffle=False)
 
     # for im, small_train_data in enumerate(train_data_list):
@@ -1042,7 +1046,7 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         # if use all, put all the index together
         if selected_sample_rows == None or selected_sample_columns == None:
             selected_sample_rows, selected_sample_columns = [], []
-            for row in range(args.len_LLM+1):
+            for row in range(args.len_LLM):
                 for column in range(len(train_data[row].idx)):
                     selected_sample_rows.append(row)
                     selected_sample_columns.append(column)
@@ -1051,20 +1055,6 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
             file_path=(''),
         )
         selected_train_data.copy_selected_dataset(train_data, selected_sample_rows, selected_sample_columns)
-        # selected_train_data.text = [] # clear all the samples
-        # selected_train_data.ids = [] # clear all the samples
-        # selected_train_data.attention_mask = [] # clear all the samples
-        # selected_train_data.label = [] # clear all the samples
-        # selected_train_data.idx = [] # clear all the samples
-        # selected_train_data.is_syn = [] # clear all the samples
-        # for row, column in zip(selected_sample_rows,selected_sample_columns):
-        #     selected_train_data.text += [train_data[row].text[column]]
-        #     selected_train_data.ids += [train_data[row].ids[column]]
-        #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-        #     selected_train_data.label += [train_data[row].label[column]]
-        #     selected_train_data.idx += [_id]
-        #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
-        #     _id += 1
         theta = torch.tensor([theta[row][col] for row,col in zip(selected_sample_rows,selected_sample_columns)]).to(args.device)
         train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
     init_theta = copy.deepcopy(theta)
@@ -1072,7 +1062,7 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
     # theta = torch.stack(theta)
     # print(type(theta), theta.shape)
     
-    for epoch in range(SELF_WEIGHT_ADJUST_EPOCH):
+    for epoch in range(max(SELF_WEIGHT_ADJUST_EPOCH,args.max_outer_iter//3)):
         print(f"epoch #{epoch} for self-weight select")
         current_outer_iter_trained_model = []
         theta_mapped = copy.deepcopy(theta)
@@ -2010,9 +2000,22 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     for _theta in theta:
         _theta.grad = torch.zeros_like(_theta)
     best_theta = theta # <list>
-    # temp_use_sigmoid = args.use_sigmoid
-
+    
+    total_small_train_data = merge_all_dataset(args, small_train_data, max_sample_count_for_total=-1)
     total_valid_data = merge_all_dataset(args, small_valid_data, max_sample_count_for_total=-1)
+    theta_total = []
+    if args.use_sigmoid:
+        theta_total.append(torch.full([len(total_small_train_data)], 0, dtype=torch.float, device=device)) #, requires_grad=True
+    else:
+        theta_total.append(torch.full([len(total_small_train_data)], args.init_theta, dtype=torch.float, device=device)) #, requires_grad=True
+    if args.optim =='Adam':
+        theta_total_opt = Adam(theta_total, lr=args.outer_lr)
+    elif args.optim =='SGD':
+        theta_total_opt = SGD(theta_total, lr=args.outer_lr, momentum=0.9)
+    for _theta in theta_total:
+        _theta.grad = torch.zeros_like(_theta)
+    best_theta_total = theta_total # <list>
+
     
     # for outer_iter in range(args.max_outer_iter):
     for outer_iter in range(1):
@@ -2120,24 +2123,88 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     # print(f"new theta[j] = {theta[j]}")
                     best_theta[j]=theta_score
             
-            torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{_outer_iter}_main_separate_models.pth")
-            torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{_outer_iter}_main_theta_acc.pth")
+            # torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{_outer_iter}_main_separate_models.pth")
+            # torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{_outer_iter}_main_theta_acc.pth")
         
+            # ##################### train using all the synthetic samples for one model #####################
+            theta_total_mapped = [copy.deepcopy(_theta) for _theta in theta_total]
+            print(f"training with data from all LLMs in iter=#{_outer_iter}")
+            if args.temp_anneal:
+                temp = args.end_temp + (args.max_outer_iter - _outer_iter)/(args.max_outer_iter) * (1-args.end_temp)
+                print("[debug] temp", temp)
+            else:
+                temp = 1
+            if args.use_sigmoid:
+            # if args.use_sigmoid and outer_iter==0.0:
+                theta_total_mapped[0] = torch.sigmoid(theta_total[0]/temp)
+            else:
+                theta_total_mapped[0] = theta_total[0]
+            if not args.disable_outer_scheduler:
+                assign_learning_rate(theta_total_opt, 0.5 * (1 + np.cos(np.pi * (_outer_iter+args.max_outer_iter*i) / args.max_outer_iter*args.len_LLM)) * args.outer_lr)
+
+            if 'Reweight' in args.fuse_dataset_weight:
+                print_info = [f"crossing: all LLMs", "fused_adjust_iter", "train_loss_ft", "train_acc_ft", "test_acc_ft", "test_loss_ft"]
+                theta_total_mapped[0], model_copy_converged_ft, _, _ = solve_reweight_v2(args, args.fused_model, [total_small_train_data], [theta_total_mapped[0].detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
+                current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
+                theta_total[0] = copy.deepcopy(theta_total_mapped[0])
+                theta_total_score = copy.deepcopy(theta_total[0])
+                # print(f"new theta[i] = {theta[i]}")
+                best_theta_total[0] = theta_total_score
+            else:
+                diverged = True # diverged==True means loss==nan, which means the training failed
+                while diverged:
+                    model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge, args.inner_obj, test_loader)
+                    print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                    if _outer_iter % args.check_ft_every==0:
+                        model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+                # print(f"[debug] {args.use_dev_outer}")
+                if args.stochastic_outer and args.subset_outer:
+                    if args.use_dev_outer:
+                        valid_loader = construct_outer_subloader(args, dev_data_all)
+                    else:
+                        valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+
+                current_outer_iter_trained_model.append(model_copy_converged)
+                current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
+                if _outer_iter == 0:
+                    current_outer_iter_trained_model_iter0.append(model_copy_converged)
+                    current_outer_iter_trained_more_steps_model_iter0.append(model_copy_converged_ft)
+            
+                if _outer_iter % args.check_ft_every == 0:
+                    test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+                    # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+                    print(f"crossing: all LLMs, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                    logging.info(f"crossing: all LLMs, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                    if args.wandb:
+                        wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+
+            if 'Adjust' in args.fuse_dataset_weight:
+                theta_total_mapped, _depricated_model_total_acc = weight_decay(args, [current_outer_iter_trained_model[-1]], [total_small_train_data], theta_total_mapped, beta=args.BETA, _type=args.weight_adjust_criterial, num_models=1)
+                theta_total[0] = copy.deepcopy(theta_total_mapped[0])
+                theta_total_score = copy.deepcopy(theta_total[0])
+                best_theta_total[0]=theta_total_score
+            # torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{_outer_iter}_main_separate_models.pth")
+            # torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{_outer_iter}_main_theta_acc.pth")
+            # ##################### train using all the synthetic samples for one model #####################
+
+
 
         # ###### train with gold_training data ######
-        current_outer_iter_trained_model_iter0_after_gold = []
+        # ###### [m_{train_using_all_syn}^{gold_data[0]}, m_{train_using_all_syn}^{gold_data[1]}, ..., m_{train_using_all_syn}^{gold_data[L]}]
+        current_outer_iter_trained_model_iter0_after_gold = [] 
         current_outer_iter_trained_more_steps_model_iter0_after_gold = []
         current_outer_iter_trained_model_after_gold = []
         current_outer_iter_trained_more_steps_model_after_gold = []
-        for i in range(args.len_LLM):
-            print(f"training STM #{i} with gold data ")
-            gold_theta = torch.full([len(gold_iter.dataset)], 0.5, dtype=torch.float, device=device) #, requires_grad=True
+        gold_theta = [torch.full([len(gold_iter[_i_party].dataset)], 0.5, dtype=torch.float, device=device) for _i_party in range(args.gold_party_num)] #, requires_grad=True
+        for i_party in range(args.gold_party_num):
+            print(f"training STM with gold data from data party #{i_party}")
             diverged = True # diverged==True means loss==nan, which means the training failed
             while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[i], gold_iter.dataset, None, gold_theta.detach(), 1, args.inner_obj, test_loader)
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                 if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[i], gold_iter.dataset, None, gold_theta.detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
             # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
             # print(f"[debug] {args.use_dev_outer}")
             if args.stochastic_outer and args.subset_outer:
@@ -2155,26 +2222,27 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             if _outer_iter % args.check_ft_every == 0:
                 test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
                 # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
-                print(f"train after gold: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-                logging.info(f"train after gold: LLM#{i}, #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                print(f"train after gold with data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                logging.info(f"train after gold with data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
                 if args.wandb:
                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
-
-        model_total_acc = model_importance_estimation(args, current_outer_iter_trained_more_steps_model_after_gold, small_valid_data, _type=args.weight_adjust_criterial)
-        # if 'Adjust' in args.fuse_dataset_weight:
-        #     theta_mapped, _depricated_model_total_acc = weight_decay(args, current_outer_iter_trained_model_after_gold, small_train_data, theta_mapped, beta=args.BETA, _type=args.weight_adjust_criterial)
-        #     for j in range(args.len_LLM):
-        #         theta[j] = copy.deepcopy(theta_mapped[j])
-        #         theta_score = copy.deepcopy(theta[j])
-        #         # print(f"new theta[j] = {theta[j]}")
-        #         best_theta[j]=theta_score
-        
-        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, current_outer_iter_trained_more_steps_model, current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
-        
-        torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
-        print(f"saved changes")
+        # ---------------------------
+        # TODO: how to deal with the mislabeled part???
+        # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold_for_each(args, current_outer_iter_trained_more_steps_model[-1], current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
+        # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
+        # print(f"saved changes")
+        # ---------------------------
         # ###### train with gold_training data ######
+
+        # ###### FedAVG with the L model trained using gold data from each party ######
+        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold)
+        test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
+        print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        if args.wandb:
+            wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # ###### FedAVG with the L model trained using gold data from each party ######
 
 
         # use the first model for further calculation
@@ -2370,12 +2438,23 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 top_ambiguous_easy_to_learn_idx, selected_indices = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
                 logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
                 print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+                
+                torch.save((confidence_score, variability_score), f"{args.result_file_path}/cross_model_confidence_and_variability_{args.accumulate_sampels}.pth") 
+                torch.save((total_small_train_data.text, total_small_train_data.label), f"{args.result_file_path}/sample_text_label.pth")
 
             # distance-based voting
+            # if 'Flip' in args.fuse_dataset_sample_selection:
+            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            # else:
+            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            # if 'Flip' in args.fuse_dataset_sample_selection:
+            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            # else:
+            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
             if 'Flip' in args.fuse_dataset_sample_selection:
-                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_within_and_outside_class(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
             else:
-                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_within_and_outside_class(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
             print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             print(f"{prompt_samples_idx=}") # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
             logging.info(f"{prompt_samples_idx=}")
@@ -2409,6 +2488,33 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 print(f"{model_sample_proportion=}, each model extend {args.num_use_samples_each_step_extend} in this step respectively")
                 logging.info(f"{model_sample_proportion=}, each model extend {args.num_use_samples_each_step_extend} in this step respectively")
             # ########################### use samples that are the nearest to real images ###########################
+
+            # for im in range(args.len_LLM):
+            #     gen_task_file_dir = f'{args.working_prompt_dir[im]}{args.i_step}/'
+            #     if not os.path.exists(gen_task_file_dir):
+            #         os.makedirs(gen_task_file_dir)
+            #     args.gen_task_file = f'{gen_task_file_dir}task.json' # "A json file providing the instructions and other information required for dataset generation. "
+            #     args.gen_output_dir = args.working_sample_dir[im] # "The output directory to which the generated dataset is saved"
+            #     args.gen_model_name = args.llms[im] # "The pretrained model to use for dataset generation. Currently, only variants of GPT2 are supported."
+            #     args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
+
+            #     # prepare few-shot prompt
+            #     prompt = FEW_SHOT_PROMPT[args.task_name]
+            #     for key in prompt["labels"].keys():
+            #         few_shot_samples = ''
+            #         for i_sample in range(args.gen_few_shot_k):
+            #             if im == 0:
+            #                 print(f"{i_sample=}, {prompt_samples_idx[key][i_sample][0]=}, {prompt_samples_idx[key][i_sample][1]=}")
+            #                 print(f"prompt sample = {args.samples_text[prompt_samples_idx[key][i_sample][0]][prompt_samples_idx[key][i_sample][1]]}")
+            #                 logging.info(f"{i_sample=}, {prompt_samples_idx[key][i_sample][0]=}, {prompt_samples_idx[key][i_sample][1]=}")
+            #                 logging.info(f"prompt sample = {args.samples_text[prompt_samples_idx[key][i_sample][0]][prompt_samples_idx[key][i_sample][1]]}")
+            #             few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{args.samples_text[prompt_samples_idx[key][i_sample][0]][prompt_samples_idx[key][i_sample][1]]}\n'
+            #         prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
+            #     with open(args.gen_task_file, "w") as task_file:
+            #         json.dump(prompt, task_file)
+            #     # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")
+            #     torch.cuda.empty_cache()
+            #     print(f'here0-7, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
             for im in range(args.len_LLM):
                 gen_task_file_dir = f'{args.working_prompt_dir[im]}{args.i_step}/'
@@ -2473,6 +2579,8 @@ if __name__ == "__main__":
     parser.add_argument('--scheduler', default="cosine", type=str)
     parser.add_argument('--gold_data_path', default=None, type=str)
     parser.add_argument('--gold_data_num', default=-1, type=int, help='number of golden data available for training')
+    parser.add_argument('--gold_party_num', default=-1, type=int, help='number of golden data party')
+    parser.add_argument('--gold_split_dirichlet', default=0.1, type=float, help='non-iid data partition for multiple gold data party, [0.0, 0.01, 0.05, 0.1, 0.5],  0.0==>partition using class')
     parser.add_argument('--syn_data_path', default='data_new/', type=str)
     parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
     # parser.add_argument('--llm_1', default=None, type=str)
@@ -2541,9 +2649,10 @@ if __name__ == "__main__":
     parser.add_argument("--gen_sample_select", type=str, default='Cartography', help="['influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography'
     parser.add_argument("--sentence_transformer", type=str, default='sentence-t5-base', help="the specified sentence transformer for embedding the input sample, set to 'none' if the STM is desired") #,'influenceCartography'
     parser.add_argument("--voting_range", type=str, default='all', help="find nearest synthetic sample within all the syn samples or within the same class, ['all', 'class']") 
-    parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for") #,'influenceCartography'
-    parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") #,'influenceCartography'
-    parser.add_argument("--unbalance_generation_temperature", type=float, default=3, help="temperature for soften the number of synthetic samples for generation for each PLM") #,'influenceCartography'
+    parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")
+    parser.add_argument("--voting_dp_sigma", type=float, default=2.177888886, help="the level of noise for DP protection of the histogram for each party")
+    parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") 
+    parser.add_argument("--unbalance_generation_temperature", type=float, default=3, help="temperature for soften the number of synthetic samples for generation for each PLM")
     parser.add_argument("--voted_sample_select", type=str, default='top', help="the method of getting samples from the voting result, including using the top and histogram-based-random-sampling as ['top', 'sampling', ...]") #,'influenceCartography'
 
     # # Required parameters for evaluating synthetic data
@@ -2621,6 +2730,14 @@ if __name__ == "__main__":
 
     set_seed(args.seed)
 
+    if args.gold_party_num == 0:
+        args.gold_party_num = 1
+        args.gold_split_dirichlet = 0.0
+    elif args.gold_party_num < 0:
+        assert args.gold_party_num >= 0, "[ERROR] --gold_party_num is not set"
+        # args.gold_party_num = args.num_classes
+        args.gold_split_dirichlet = 0.0
+
     print(f"learning rate: {args.inner_lr}")
     print(f"seed: {args.seed}")
 
@@ -2641,7 +2758,7 @@ if __name__ == "__main__":
     args.model_name_sample = f'{args.task_name}/[mix]_{args.llms[0]}_{args.num_use_samples_inner[0]}' if args.mix else f'{args.task_name}/{args.llms[0]}_{args.num_use_samples_inner[0]}'
     for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
         args.model_name_sample += f'__{_model}_{num_samples_inner}'
-    args.save_path=os.path.join(f'results/with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
+    args.save_path=os.path.join(f'results/multiGold_with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
     args.save_path = f"{args.save_path}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.max_outer_iter}_{args.seed}"
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -2653,12 +2770,12 @@ if __name__ == "__main__":
     log_format = '%(asctime)s [%(levelname)s]: %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                         format=log_format, datefmt='%m/%d %I:%M:%S %p')
-    if not os.path.exists(f'./logging/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
-        os.makedirs(f'./logging/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
-    fh = logging.FileHandler(os.path.join(f'./logging/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
+    if not os.path.exists(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
+        os.makedirs(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
+    fh = logging.FileHandler(os.path.join(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
-    args.result_file_path = f'./results/eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
+    args.result_file_path = f'./results/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
     if not os.path.exists(args.result_file_path):
         os.makedirs(args.result_file_path)
 
@@ -2677,6 +2794,10 @@ if __name__ == "__main__":
         print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
         if args.use_test:
             dev_iter = test_iter
+        
+        if args.gold_party_num < 0:
+            args.gold_party_num = args.num_classes
+            args.gold_split_dirichlet = 0.0
 
         args.accumulate_sampels = [0]
         for _i in range(args.len_LLM):
@@ -2711,17 +2832,17 @@ if __name__ == "__main__":
 
         if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             print(f'use {[len(train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
-            print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
-            print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} train data...')
+            print(f'use {[len(small_train_iter[i].dataset.idx) for i in range(args.len_LLM)]} small train data...')
+            print(f'use {[len(small_valid_iter[i].dataset.idx) for i in range(args.len_LLM)]} small valid data...')
             # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
             # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
             print(f'use {len(dev_iter.dataset.idx)} dev data...')
-            print(f'use {len(gold_iter.dataset.idx)} gold data...')
+            print(f'use {[len(gold_iter[i].dataset.idx) for i in range(args.gold_party_num)]} gold data...')
             print(f'use {len(test_iter.dataset.idx)} test data...')
         elif args.small_model_name == 'LSTM':
             print(f'use {[len(train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
-            print(f'use {[len(small_train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
-            print(f'use {[len(small_valid_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+            print(f'use {[len(small_train_iter[i].dataset.examples) for i in range(args.len_LLM)]} sn=mall train data...')
+            print(f'use {[len(small_valid_iter[i].dataset.examples) for i in range(args.len_LLM)]} small valid data...')
             # print(f'use {[len(train_data[i].examples) for i in range(args.len_LLM)]} in train_data')
             # print(f'use {[len(small_train_data[i].examples) for i in range(args.len_LLM)]} in small_train_data')
             print(f'use {len(dev_iter.dataset.examples)} dev data...')
@@ -2752,22 +2873,23 @@ if __name__ == "__main__":
 
         for im in range(args.len_LLM):
             args.init_sample_path.append(f'data_accumulate_start/{args.task_name}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}/train.jsonl')
-            args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
+            args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             if not os.path.exists(args.working_sample_dir[im]):
                 os.makedirs(args.working_sample_dir[im])
             # args.working_sample_path.append(f'{args.working_sample_dir[im]}train.jsonl')
-            args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.gen_sample_select}_{args.voted_sample_select}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
-            for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
-                prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
+            args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
+            # for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
+            #     prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
         
         args.num_use_samples_init = torch.tensor(args.num_use_samples_init,dtype=torch.long).to(args.device)
         args.num_use_samples_each_step_extend = torch.tensor(args.num_use_samples_each_step_extend,dtype=torch.long).to(args.device)
         args.num_use_total_samples_each_step_extend = torch.tensor(args.num_use_total_samples_each_step_extend,dtype=torch.long).to(args.device)
         args.sample_each_llm = torch.zeros((args.len_LLM),dtype=torch.long).to(args.device)
-        for i_step in range(args.steps+1):
+        for i_step in range(1, args.steps+1):
             args.i_step = i_step
             # args.sample_each_llm = args.num_use_samples_init + i_step * args.num_use_samples_each_step_extend
             args.sample_each_llm = args.sample_each_llm + args.num_use_samples_each_step_extend
+            args.sample_each_llm = torch.tensor([375, 397, 375, 348, 368, 537],dtype=torch.long)
             # args.sample_each_llm = torch.tensor(args.sample_each_llm).to(args.device)
             print('num of use syn samples in total: {}'.format(sum(args.num_use_samples_inner)))
             print(f'num of current syn samples for step {i_step}: {args.sample_each_llm}')
@@ -2782,6 +2904,10 @@ if __name__ == "__main__":
             # print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             if args.use_test:
                 dev_iter = test_iter
+
+            if args.gold_party_num < 0:
+                args.gold_party_num = args.num_classes
+                args.gold_split_dirichlet = 0.0
 
             args.accumulate_sampels = [0]
             for _i in range(args.len_LLM):
@@ -2822,12 +2948,13 @@ if __name__ == "__main__":
                 # print(f'use {[len(train_data[i].idx) for i in range(args.len_LLM)]} in train_data')
                 # print(f'use {[len(small_train_data[i].idx) for i in range(args.len_LLM)]} in small_train_data')
                 print(f'use {len(dev_iter.dataset.idx)} dev data...')
-                print(f'use {len(gold_iter.dataset.idx)} gold data...')
+                print(f'use {[len(gold_iter[i].dataset.idx) for i in range(args.gold_party_num)]} gold data...')
+                logging.info(f'use {[len(gold_iter[i].dataset.idx) for i in range(args.gold_party_num)]} gold data...')
                 print(f'use {len(test_iter.dataset.idx)} test data...')
             elif args.small_model_name == 'LSTM':
                 print(f'use {[len(train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
-                print(f'use {[len(small_train_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
-                print(f'use {[len(small_valid_iter[i].dataset.examples) for i in range(args.len_LLM)]} train data...')
+                print(f'use {[len(small_train_iter[i].dataset.examples) for i in range(args.len_LLM)]} small train data...')
+                print(f'use {[len(small_valid_iter[i].dataset.examples) for i in range(args.len_LLM)]} small valid data...')
                 # print(f'use {[len(train_data[i].examples) for i in range(args.len_LLM)]} in train_data')
                 # print(f'use {[len(small_train_data[i].examples) for i in range(args.len_LLM)]} in small_train_data')
                 print(f'use {len(dev_iter.dataset.examples)} dev data...')

@@ -824,6 +824,7 @@ def run_divergence_calculation(args, models, dataset, use_soft_label=False):
     confidence_per_sample = logits_per_sample[:,torch.arange(all_labels.size(0)), all_labels]
     variability_per_sample = torch.std(confidence_per_sample, dim=0)
     confidence_per_sample = torch.mean(confidence_per_sample, dim=0)
+    torch.save((correctness_per_sample, prediction_per_sample, logits_per_sample, confidence_per_sample, variability_per_sample), f"{args.result_file_path}/correctness_prediction_logits_confidence_variability_for_dynamic.pth")
     return list(confidence_per_sample.detach().cpu().numpy()), list(variability_per_sample.detach().cpu().numpy())
 
 

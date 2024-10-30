@@ -428,8 +428,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
 
     print("test dataset")
     test_data = TokenizedDataset(
-        # file_path=(gold_data_path+'test.jsonl'),
-        file_path=(gold_data_path+'test_small.jsonl'),
+        file_path=(gold_data_path+'test.jsonl'),
+        # file_path=(gold_data_path+'test_small.jsonl'),
         text_column='text',
         label_column='label',
         index_column='idx',
@@ -1834,7 +1834,7 @@ def train_separate_models(args, model, train_data, small_train_data, small_valid
     best_theta = theta # <list>
     # temp_use_sigmoid = args.use_sigmoid
     
-    total_valid_data = merge_all_dataset(args, small_valid_data)
+    total_valid_data = merge_all_dataset(args, small_valid_data, max_sample_count_for_total=-1)
 
     current_outer_iter_trained_model_iter0 = []
     current_outer_iter_trained_more_steps_model_iter0 = []
@@ -2001,8 +2001,8 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         _theta.grad = torch.zeros_like(_theta)
     best_theta = theta # <list>
     
-    total_small_train_data = merge_all_dataset(args, small_train_data)
-    total_valid_data = merge_all_dataset(args, small_valid_data)
+    total_small_train_data = merge_all_dataset(args, small_train_data, max_sample_count_for_total=-1)
+    total_valid_data = merge_all_dataset(args, small_valid_data, max_sample_count_for_total=-1)
     theta_total = []
     if args.use_sigmoid:
         theta_total.append(torch.full([len(total_small_train_data)], 0, dtype=torch.float, device=device)) #, requires_grad=True
@@ -2432,8 +2432,12 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                         confidence_score[im], variability_score[im] = run_divergence_calculation(args, new_current_outer_iter_trained_more_steps_model, new_small_train_data[im])
                 else:
                     total_valid_data = merge_all_dataset(args, small_valid_data)
-                    for im in range(args.len_LLM):
-                        confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
+                    if 'CartographyWithReal' in args.gen_sample_select:
+                        for im in range(args.len_LLM):
+                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold, small_train_data[im])
+                    else:
+                        for im in range(args.len_LLM):
+                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im])
                 print(f"{confidence_score=}, {variability_score=}")
                 top_ambiguous_easy_to_learn_idx, selected_indices = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
                 logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
@@ -2727,6 +2731,7 @@ if __name__ == "__main__":
         args.gold_party_num = 1
         args.gold_split_dirichlet = 0.0
     elif args.gold_party_num < 0:
+        assert args.gold_party_num >= 0, "[ERROR] --gold_party_num is not set"
         # args.gold_party_num = args.num_classes
         args.gold_split_dirichlet = 0.0
 

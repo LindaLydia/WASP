@@ -24,8 +24,8 @@ MODEL_PATH = {
 }
 
 SENTENCE_TRANSFORMERS_PATH = {
-    'stsb-roberta-base-v2': '/home/DAIR/zouty/.cache/huggingface/hub/sentence-transformers--stsb-roberta-base-v2',
-    'sentence-t5-base': '/home/DAIR/zouty/.cache/huggingface/hub/sentence-transformers--sentence-t5-base/',
+    'stsb-roberta-base-v2': '../../../.cache/huggingface/hub/sentence-transformers--stsb-roberta-base-v2',
+    'sentence-t5-base': '../../../.cache/huggingface/hub/sentence-transformers--sentence-t5-base/',
 }
 
 SMALL_MODEL_WITH_TOKENIZER = ['bert', 'ernie']
