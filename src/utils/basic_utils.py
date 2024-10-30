@@ -726,7 +726,7 @@ def eval_get_predicts(args, model, data_iter, name, epoch=None, use_soft_label=F
     return acc, total_loss/len(data_iter), all_predicts, all_predicts_votes, all_labels
 
 
-def run_divergence_calculation(args, models, dataset, use_soft_label=False):
+def run_divergence_calculation(args, models, dataset, use_soft_label=False, plm_name=''):
     use_soft_label = False
     # loss_func = nn.CrossEntropyLoss()
     if args.small_model_name.upper() == 'LSTM':
@@ -824,7 +824,7 @@ def run_divergence_calculation(args, models, dataset, use_soft_label=False):
     confidence_per_sample = logits_per_sample[:,torch.arange(all_labels.size(0)), all_labels]
     variability_per_sample = torch.std(confidence_per_sample, dim=0)
     confidence_per_sample = torch.mean(confidence_per_sample, dim=0)
-    torch.save((correctness_per_sample, prediction_per_sample, logits_per_sample, confidence_per_sample, variability_per_sample), f"{args.result_file_path}/correctness_prediction_logits_confidence_variability_for_dynamic.pth")
+    torch.save((correctness_per_sample, prediction_per_sample, logits_per_sample, confidence_per_sample, variability_per_sample), f"{args.result_file_path}/correctness_prediction_logits_confidence_variability_for_dynamic_{plm_name}.pth")
     return list(confidence_per_sample.detach().cpu().numpy()), list(variability_per_sample.detach().cpu().numpy())
 
 
