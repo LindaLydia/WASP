@@ -43,6 +43,7 @@ except:
 
 from utils.bert_dataset import *
 from utils.constant import SMALL_MODEL_WITH_TOKENIZER
+from utils.dirichlet_partition import dirichlet_split
 
 def init_logging(log_file, stdout=False):
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(module)s: %(message)s',
@@ -216,6 +217,14 @@ def split_gold_data_for_parties(args, total_data):
                     file_path=(''),
                 )
                 _dataset.clear_and_copy_dataset([total_data], list(related_data_idx.cpu().numpy()), 1, new_idx=True)
+                data_list.append(_dataset)
+        else:
+            sample_index_list = dirichlet_split(args, args.gold_split_dirichlet, args.gold_party_num, total_data)
+            for i_party in range(args.gold_party_num):
+                _dataset = TokenizedDataset(
+                    file_path=(''),
+                )
+                _dataset.clear_and_copy_dataset([total_data], list(sample_index_list[i_party]), 1, new_idx=True)
                 data_list.append(_dataset)
     return data_list
 
@@ -947,6 +956,35 @@ def sample_dynamic_selection(confidence_score, variability_score, count, pool_si
     return top_ambiguous_easy_to_learn_idx, selected_indices
 
 
+def sample_pred_change_after_gold_selection(loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, count, pool_size, is_random='Cartography'):
+    total_select_sample_count = count*pool_size
+
+    loss_decrease = [list(loss_per_sample_change[i].cpu().numpy()) for i in range(len(loss_per_sample_change))]
+    error_decrease = [list(error_per_sample_change[i].cpu().numpy()) for i in range(len(error_per_sample_change))]
+    
+    model_sample_count = [len(error_decrease[i]) for i in range(len(error_decrease))]
+    accumulated_sample_count = [0]
+    loss_decrease_flat = []
+    error_decrease_flat = []
+    for i in range(len(error_decrease)):
+        accumulated_sample_count.append(accumulated_sample_count[-1]+model_sample_count[i])
+        loss_decrease_flat += loss_decrease[i]
+        error_decrease_flat += error_decrease[i]
+    loss_decrease_flat = np.array(loss_decrease_flat)
+    error_decrease_flat = np.array(error_decrease_flat)
+
+    if is_random == 'random' or is_random == '': # 'random'.reaplace('influence','') and 'influence'.reaplace('influence','')
+        selected_indices = random.sample(range(accumulated_sample_count[-1]), (count*pool_size))
+    else:
+        ascending_indices = list(np.argsort(error_decrease_flat)) # from easy/hard-to-learn to ambiguous
+
+        if len(ascending_indices) >= (count*pool_size):
+            selected_indices = ascending_indices[-(count*pool_size):]
+        else:
+            selected_indices = ascending_indices
+    return selected_indices
+
+
 def sample_error_decreased_selection(error_decrease, count, pool_size=40, is_random='Cartography'):
     # print(f"{len(error_decrease)}")
     error_decrease = [list(error_decrease[i].cpu().numpy()) for i in range(len(error_decrease))]
@@ -1241,9 +1279,9 @@ def importance_selection_among_good_dynamic_samples(influence_score, top_ambiguo
 
 def model_pred_change_after_gold(args, model_list, model_list_after_gold, dataset_list):
     
-    assert args.len_LLM <= len(model_list) <= args.len_LLM+1, f"{args.len_LLM=} != {len(model_list)=}"
-    assert args.len_LLM <= len(model_list_after_gold) <= args.len_LLM+1, f"{args.len_LLM=} != {len(model_list_after_gold)=}"
-    assert args.len_LLM <= len(dataset_list) <= args.len_LLM+1, f"{args.len_LLM=} != {len(dataset_list)=}"
+    # assert args.len_LLM <= len(model_list) <= args.len_LLM+1, f"{args.len_LLM=} != {len(model_list)=}"
+    # assert args.len_LLM <= len(model_list_after_gold) <= args.len_LLM+1, f"{args.len_LLM=} != {len(model_list_after_gold)=}"
+    # assert args.len_LLM <= len(dataset_list) <= args.len_LLM+1, f"{args.len_LLM=} != {len(dataset_list)=}"
 
     loss_per_sample = []
     error_per_sample = []
@@ -1344,14 +1382,13 @@ def model_pred_change_after_gold(args, model_list, model_list_after_gold, datase
     # logits_per_sample = torch.cat(logits_per_sample, dim=1)
 
     print(f"{loss_per_sample[0].shape=}, {error_per_sample[0].shape=}, {logits_per_sample[0].shape=}, {len(loss_per_sample)=}")
-    torch.save(([dataset.text for dataset in dataset_list], [dataset.label for dataset in dataset_list], loss_per_sample, error_per_sample, correctness_per_sample, prediction_per_sample, logits_per_sample), f"{args.result_file_path}/sample_pred.pth")
-
+    torch.save(([dataset.text for dataset in dataset_list], [dataset.label for dataset in dataset_list], loss_per_sample, error_per_sample, correctness_per_sample, prediction_per_sample, logits_per_sample), f"{args.result_file_path}/iter{args.i_step}_sample_pred.pth")
 
     loss_per_sample_change = [loss_per_sample[i][1] - loss_per_sample[i][0] for i in range(len(loss_per_sample))]
     error_per_sample_change = [error_per_sample[i][1] - error_per_sample[i][0] for i in range(len(error_per_sample))]
     correctness_per_sample_change = [(correctness_per_sample[i][1]) & (~correctness_per_sample[i][0]) for i in range(len(correctness_per_sample))]
     prediction_per_sample_change = [prediction_per_sample[i][1] - prediction_per_sample[i][0] for i in range(len(prediction_per_sample))]
-    logits_per_sample_change = [torch.norm(logits_per_sample[i][1] - logits_per_sample[i][0], dim=1) for i in range(len(logits_per_sample))]
+    logits_per_sample_change = [torch.norm(logits_per_sample[i][1], dim=1) - torch.norm(logits_per_sample[i][0], dim=1) for i in range(len(logits_per_sample))]
 
     print(f"{loss_per_sample_change[0].shape=}, {error_per_sample_change[0].shape=}, {logits_per_sample_change[0].shape=}, {len(logits_per_sample_change)=}")
 

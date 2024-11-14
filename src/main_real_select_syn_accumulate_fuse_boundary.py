@@ -356,7 +356,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             max_length=args.max_input_length,
             # device=args.device,
-            is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
+            is_syn_column=('is_syn' if 'worksheet' in args.task_name else 'true'),
             max_sample=args.sample_each_llm[i],
             small_dataset_shuffle=False,
         )
@@ -404,7 +404,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         max_length=args.max_input_length,
         max_sample=(args.gold_data_num if args.gold_data_num < 0 else ((args.gold_data_num+args.num_classes-1)//args.num_classes)*args.num_classes),
         # max_sample=-1, # use all that is provided in the dataset file
-        is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
+        is_syn_column=('is_syn' if 'worksheet' in args.task_name else 'false'),
         small_dataset_shuffle=True,
     )
     gold_data_list = split_gold_data_for_parties(args, gold_data)
@@ -436,7 +436,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         tokenizer=args.tokenizer,
         device=args.device,
         max_length=args.max_input_length,
-        is_syn_column=None,
+        is_syn_column='false',
         # max_sample=100 # use all that is provided in the dataset file
         max_sample=-1 # use all that is provided in the dataset file
     )
@@ -452,7 +452,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             device=args.device,
             max_length=args.max_input_length,
-            is_syn_column=None,
+            is_syn_column='false',
             small_dataset_shuffle=False,
         )
         dev_data = TokenizedDataset(
@@ -464,7 +464,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             max_length=args.max_input_length,
             device=args.device,
             max_sample=num_use_samples_outer,
-            is_syn_column=None,
+            is_syn_column='false',
             small_dataset_shuffle=False,
         )
     else:
