@@ -2124,7 +2124,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     best_theta = theta # <list>
     
     total_small_train_data = merge_all_dataset(args, small_train_data, max_sample_count_for_total=-1)
-    args.accumulate_sampels_small_train = []
+    args.accumulate_sampels_small_train = [0]
     for _data in small_train_data:
         args.accumulate_sampels_small_train.append(args.accumulate_sampels_small_train[-1]+len(_data))
     logging.info(f"In iter#{args.i_step}, small train data has {args.accumulate_sampels_small_train} samples")

@@ -1384,7 +1384,13 @@ def model_pred_change_after_gold(args, model_list, model_list_after_gold, datase
     print(f"{loss_per_sample[0].shape=}, {error_per_sample[0].shape=}, {logits_per_sample[0].shape=}, {len(loss_per_sample)=}")
     torch.save(([dataset.text for dataset in dataset_list], [dataset.label for dataset in dataset_list], loss_per_sample, error_per_sample, correctness_per_sample, prediction_per_sample, logits_per_sample), f"{args.result_file_path}/iter{args.i_step}_sample_pred.pth")
 
-    model_total_loss = [torch.sum(float(loss_per_sample[args.accumulate_sampels_small_train[_i]:args.accumulate_sampels_small_train[_i+1]][1])*args.accumulate_sampels_small_train[-1]/(args.accumulate_sampels_small_train[_i+1]-args.accumulate_sampels_small_train[_i])) for _i in range(args.len_LLM)]
+    for _i in range(args.len_LLM):
+        print(f"{args.accumulate_sampels_small_train[_i]=}")
+        print(f"{args.accumulate_sampels_small_train[_i+1]=}")
+        print(f"{loss_per_sample[0].shape=}")
+        print(f"{loss_per_sample[0][1]=}")
+        print(f"{loss_per_sample[0][1][args.accumulate_sampels_small_train[_i]:args.accumulate_sampels_small_train[_i+1]]=}")
+    model_total_loss = [float(torch.sum(loss_per_sample[0][1][args.accumulate_sampels_small_train[_i]:args.accumulate_sampels_small_train[_i+1]])*args.accumulate_sampels_small_train[-1]/(args.accumulate_sampels_small_train[_i+1]-args.accumulate_sampels_small_train[_i])) for _i in range(args.len_LLM)]
 
     loss_per_sample_change = [loss_per_sample[i][1] - loss_per_sample[i][0] for i in range(len(loss_per_sample))]
     error_per_sample_change = [error_per_sample[i][1] - error_per_sample[i][0] for i in range(len(error_per_sample))]
