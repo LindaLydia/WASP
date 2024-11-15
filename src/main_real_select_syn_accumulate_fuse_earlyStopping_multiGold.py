@@ -2124,6 +2124,12 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     best_theta = theta # <list>
     
     total_small_train_data = merge_all_dataset(args, small_train_data, max_sample_count_for_total=-1)
+    args.accumulate_sampels_small_train = []
+    for _data in small_train_data:
+        args.accumulate_sampels_small_train.append(args.accumulate_sampels_small_train[-1]+len(_data))
+    logging.info(f"In iter#{args.i_step}, small train data has {args.accumulate_sampels_small_train} samples")
+    print(f"In iter#{args.i_step}, small train data has {args.accumulate_sampels_small_train} samples")
+    args.accumulate_sampels_small_train = torch.tensor(args.accumulate_sampels_small_train, dtype=torch.long).to(args.device)
     total_valid_data = merge_all_dataset(args, small_valid_data, max_sample_count_for_total=-1)
     theta_total = []
     if args.use_sigmoid:
@@ -2406,7 +2412,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
 
         # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], small_train_data)
         # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
-        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], [total_small_train_data])
+        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, model_total_loss = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], [total_small_train_data])
         torch.save(([dataset.text for dataset in [total_small_train_data]], [dataset.label for dataset in [total_small_train_data]], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/iter{args.i_step}_sample_pred_change.pth")
 
         # use the first model for further calculation
@@ -2637,7 +2643,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"{result_sparse_list=}")
             logging.info(f"#selected samples from each PLM in the prompt list: {result_sparse_list}")
             if args.unbalance_generation == True:
-                model_sample_proportion = F.softmax((torch.tensor(model_voting_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
+                if 'GoldChange' in args.gen_sample_select:
+                    model_sample_proportion = F.softmax((torch.tensor(model_total_loss).to(args.device)/args.unbalance_generation_temperature), dim=-1)
+                else:
+                    model_sample_proportion = F.softmax((torch.tensor(model_voting_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
                 num_use_samples_float = args.num_use_total_samples_each_step_extend * model_sample_proportion
                 args.num_use_samples_each_step_extend = num_use_samples_float.long() # no rounding, just keep the integer part
                 difference = args.num_use_total_samples_each_step_extend - torch.sum(args.num_use_samples_each_step_extend)
