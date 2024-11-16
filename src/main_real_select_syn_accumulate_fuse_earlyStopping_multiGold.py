@@ -2412,7 +2412,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
 
         # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], small_train_data)
         # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
-        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, model_total_loss = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], [total_small_train_data])
+        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, model_average_loss = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], [total_small_train_data])
         torch.save(([dataset.text for dataset in [total_small_train_data]], [dataset.label for dataset in [total_small_train_data]], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/iter{args.i_step}_sample_pred_change.pth")
 
         # use the first model for further calculation
@@ -2644,7 +2644,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             logging.info(f"#selected samples from each PLM in the prompt list: {result_sparse_list}")
             if args.unbalance_generation == True:
                 if 'GoldChange' in args.gen_sample_select:
-                    model_sample_proportion = F.softmax((torch.tensor(model_total_loss).to(args.device)/args.unbalance_generation_temperature), dim=-1)
+                    model_average_loss = torch.tensor(model_average_loss)
+                    model_score = (1/model_average_loss) / torch.sum(1/model_average_loss)
+                    print(f"{model_score=}")
+                    model_sample_proportion = F.softmax((torch.tensor(model_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
                 else:
                     model_sample_proportion = F.softmax((torch.tensor(model_voting_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
                 num_use_samples_float = args.num_use_total_samples_each_step_extend * model_sample_proportion
@@ -2826,7 +2829,7 @@ if __name__ == "__main__":
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")
     parser.add_argument("--voting_dp_sigma", type=float, default=2.177888886, help="the level of noise for DP protection of the histogram for each party")
     parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") 
-    parser.add_argument("--unbalance_generation_temperature", type=float, default=3, help="temperature for soften the number of synthetic samples for generation for each PLM")
+    parser.add_argument("--unbalance_generation_temperature", type=float, default=1.0, help="temperature for soften the number of synthetic samples for generation for each PLM")
     parser.add_argument("--voted_sample_select", type=str, default='top', help="the method of getting samples from the voting result, including using the top and histogram-based-random-sampling as ['top', 'sampling', ...]") #,'influenceCartography'
 
     # # Required parameters for evaluating synthetic data
