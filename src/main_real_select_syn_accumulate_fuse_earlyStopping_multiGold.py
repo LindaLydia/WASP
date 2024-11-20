@@ -689,12 +689,14 @@ def train(args, model, train_iter, dev_iter, loss_func, optimizer, epochs, patie
     return best_model
 
 
-def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge, inner_obj, test_loader, soft_label=None):
+def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge, inner_obj, test_loader, optimizer_state=None, soft_label=None):
     model_copy = copy.deepcopy(model)
     if args.optim =='Adam':
         optimizer = Adam(model_copy.parameters(), lr=args.inner_lr)
     elif args.optim =='SGD':
         optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        optimizer.load_state_dict(optimizer_state)
     losses = AverageMeter("Loss", ":.3f")
     model_weights_cache = []
     opt_checkpoints_cache = []
@@ -789,10 +791,11 @@ def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge
             # valid test for possible early stopping
             model_copy.eval()
             valid_acc, valid_loss = eval(args, model_copy, valid_iter, name="validation", use_soft_label=False)
-            if early_stopping_judge(model_copy, train_loss, valid_loss):
+            if early_stopping_judge(model_copy, train_loss, valid_loss, optimizer):
                 diverged = False
                 print(f"Early stopping @ epoch#{epoch}, {train_loss=}, {valid_loss=}, stopping_status={early_stopping_judge.status}")
                 model_copy = early_stopping_judge.best_model
+                optimizer = early_stopping_judge.best_model_optimizer
                 break
             else:
                 print(f"Continue training @ epoch#{epoch}, {train_loss=}, {valid_loss=}")
@@ -2125,7 +2128,11 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     
     total_small_train_data = merge_all_dataset(args, small_train_data, max_sample_count_for_total=-1)
     args.accumulate_sampels_small_train = [0]
+    __i = 0
     for _data in small_train_data:
+        # print(f"{__i=}, {args.accumulate_sampels_small_train=}")
+        # print(f"{__i=}, {args.accumulate_sampels_small_train[-1]=}")
+        # print(f"{__i=}, {len(_data)=}")
         args.accumulate_sampels_small_train.append(args.accumulate_sampels_small_train[-1]+len(_data))
     logging.info(f"In iter#{args.i_step}, small train data has {args.accumulate_sampels_small_train} samples")
     print(f"In iter#{args.i_step}, small train data has {args.accumulate_sampels_small_train} samples")
@@ -2304,7 +2311,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
 
             if 'Reweight' in args.fuse_dataset_weight:
                 print_info = [f"crossing: all LLMs", "fused_adjust_iter", "train_loss_ft", "train_acc_ft", "test_acc_ft", "test_loss_ft"]
-                theta_total_mapped[0], model_copy_converged_ft, _, _ = solve_reweight_v2(args, args.fused_model, [total_small_train_data], [theta_total_mapped[0].detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
+                theta_total_mapped[0], model_copy_converged_ft, _, optimizer_weight_ckp_all_syn = solve_reweight_v2(args, args.fused_model, [total_small_train_data], [theta_total_mapped[0].detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
                 current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
                 theta_total[0] = copy.deepcopy(theta_total_mapped[0])
                 theta_total_score = copy.deepcopy(theta_total[0])
@@ -2317,7 +2324,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                     if _outer_iter % args.check_ft_every==0:
                         # model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
-                        model_copy_converged_ft, loss_ft, train_acc_ft, model_weight_ckp_all_syn, _, _ = train_to_converge_save_ckp(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                        model_copy_converged_ft, loss_ft, train_acc_ft, model_weight_ckp_all_syn, optimizer_weight_ckp_all_syn, _ = train_to_converge_save_ckp(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
                         confidence_score = [None] * args.len_LLM
                         variability_score = [None] * args.len_LLM
                         for im in range(args.len_LLM):
@@ -2367,10 +2374,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"training STM with gold data from data party #{i_party}")
             diverged = True # diverged==True means loss==nan, which means the training failed
             while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn)
                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                 if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn)
             # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
             # print(f"[debug] {args.use_dev_outer}")
             if args.stochastic_outer and args.subset_outer:
