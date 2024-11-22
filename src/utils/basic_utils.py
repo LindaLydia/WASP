@@ -174,7 +174,7 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
         _id = 0
         total_dataset = TokenizedDataset(
             file_path=(''),
-        )
+        )        
         total_dataset.text = [] # clear all the samples
         total_dataset.ids = [] # clear all the samples
         total_dataset.attention_mask = [] # clear all the samples
@@ -184,8 +184,8 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
         for row in range(args.len_LLM):
             # accumulate_sampels.append(accumulate_sampels[-1]+len(datasets[row].idx))
             idx_list = [_i for _i in range(len(datasets[row].idx))]
-            random.shuffle(idx_list)
-            if max_sample_count_for_each != -1:
+            if max_sample_count_for_each != -1 and max_sample_count_for_each < len(datasets[row].idx):
+                random.shuffle(idx_list)
                 idx_list = idx_list[:min(len(datasets[row].idx),max_sample_count_for_each)]
                 print(f"{len(datasets[row].idx)=}, use {min(len(datasets[row].idx),max_sample_count_for_each)} samples")
             else:

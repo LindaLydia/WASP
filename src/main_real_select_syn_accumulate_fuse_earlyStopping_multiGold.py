@@ -2743,10 +2743,11 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     for i_sample in range(args.gen_few_shot_k):
                         if im == 0:
                             print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                            print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
+                            # print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
+                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
                             logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                            logging.info(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
-                        few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}\n'
+                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                        few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}\n'
                     prompt = FEW_SHOT_PROMPT[args.task_name]
                     for key in prompt["labels"].keys():
                         prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
@@ -2758,10 +2759,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                             if im == 0:
                                 print(f"{key=}, {i_key=} {i_sample=}")
                                 print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
-                                print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_key][i_sample][0]][prompt_samples_idx[i_key][i_sample][1]]}")
+                                print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
                                 logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
-                                logging.info(f"prompt sample = {args.samples_text[prompt_samples_idx[i_key][i_sample][0]][prompt_samples_idx[i_key][i_sample][1]]}")
-                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{args.samples_text[prompt_samples_idx[i_key][i_sample][0]][prompt_samples_idx[i_key][i_sample][1]]}\n'
+                                logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
                         prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
                 with open(args.gen_task_file, "w") as task_file:
                     json.dump(prompt, task_file)
