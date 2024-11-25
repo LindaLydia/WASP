@@ -168,7 +168,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/'
         train_data, _ = data.TabularDataset.splits(
             path=train_data_path,
             train='train.jsonl',
@@ -347,7 +347,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/train.jsonl') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/train.jsonl'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/train.jsonl'
         train_data = TokenizedDataset(
             file_path=train_data_path,
             text_column='C',
@@ -697,6 +697,10 @@ def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge
         optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
     if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
         optimizer.load_state_dict(optimizer_state)
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(args.device)
     losses = AverageMeter("Loss", ":.3f")
     model_weights_cache = []
     opt_checkpoints_cache = []
@@ -802,18 +806,29 @@ def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge
 
     opt_checkpoints_cache.append(optimizer.state_dict())
     model_copy.to("cpu")
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to("cpu")
     model_weights_cache.append(copy.deepcopy(model_copy.state_dict()))
     if math.isnan(loss.item()):
         diverged = True
     return model_copy, losses.avg, top1.avg, model_weights_cache, opt_checkpoints_cache, diverged
 
 
-def train_to_converge_save_ckp(args, model, train_data, valid_data, theta, epoch_converge, inner_obj, test_loader, soft_label=None):
+def train_to_converge_save_ckp(args, model, train_data, valid_data, theta, epoch_converge, inner_obj, test_loader, optimizer_state=None, soft_label=None):
     model_copy = copy.deepcopy(model)
     if args.optim =='Adam':
         optimizer = Adam(model_copy.parameters(), lr=args.inner_lr)
     elif args.optim =='SGD':
         optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        optimizer.load_state_dict(optimizer_state)
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(args.device)
     losses = AverageMeter("Loss", ":.3f")
     model_weights_cache = []
     opt_checkpoints_cache = []
@@ -903,15 +918,21 @@ def train_to_converge_save_ckp(args, model, train_data, valid_data, theta, epoch
             # valid test for possible early stopping
             model_copy.eval()
             valid_acc, valid_loss = eval(args, model_copy, valid_iter, name="validation", use_soft_label=False)
-            if early_stopping_judge(model_copy, train_loss, valid_loss):
+            if early_stopping_judge(model_copy, train_loss, valid_loss, optimizer):
                 diverged = False
                 print(f"Early stopping @ epoch#{epoch}, {train_loss=}, {valid_loss=}, stopping_status={early_stopping_judge.status}")
                 model_copy = early_stopping_judge.best_model
+                optimizer = early_stopping_judge.best_model_optimizer
                 break
             else:
                 print(f"Continue training @ epoch#{epoch}, {train_loss=}, {valid_loss=}")
 
     model_copy.to("cpu")
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to("cpu")
     if math.isnan(loss.item()):
         diverged = True
     return model_copy, losses.avg, top1.avg, model_weights_cache, opt_checkpoints_cache, diverged
@@ -2374,10 +2395,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"training STM with gold data from data party #{i_party}")
             diverged = True # diverged==True means loss==nan, which means the training failed
             while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn)
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                 if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn)
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
             # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
             # print(f"[debug] {args.use_dev_outer}")
             if args.stochastic_outer and args.subset_outer:
@@ -2624,14 +2645,16 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 # top_ambiguous_easy_to_learn_idx = sample_error_decreased_selection(error_per_sample_change, args.gen_few_shot_k, args.gen_few_shot_pool_size, is_random=(args.gen_sample_select.replace('influence','')))
 
             # distance-based voting
-            # if 'Flip' in args.fuse_dataset_sample_selection:
-            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
-            # else:
-            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
-            if 'Flip' in args.fuse_dataset_sample_selection:
-                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
-            else:
-                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            if args.gen_by_class == 0: # different prompt for different class
+                if 'Flip' in args.fuse_dataset_sample_selection:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+                else:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            else: # same prompt for all classes
+                if 'Flip' in args.fuse_dataset_sample_selection:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+                else:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
             print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             print(f"{prompt_samples_idx=}") # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
             logging.info(f"{prompt_samples_idx=}")
@@ -2645,7 +2668,13 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 torch.save((confidence_score, variability_score, nearest_sample_voting),f"{args.result_file_path}/iter{outer_iter}_variability_and_voting.pth")
                 assert confidence_score.shape==variability_score.shape==nearest_sample_voting.shape, f"[ERROR] should have the same shape, but now {confidence_score.shape=}, {variability_score.shape=}, {nearest_sample_voting.shape=}"
 
-            counts = Counter(x[0] for x in prompt_samples_idx)
+            if args.gen_by_class == 0:
+                counts = Counter(x[0] for x in prompt_samples_idx)
+            else:
+                all_prompt_samples_idx = []
+                for _idx_list in prompt_samples_idx:
+                    all_prompt_samples_idx += _idx_list
+                counts = Counter(x[0] for x in all_prompt_samples_idx)
             result_sparse_list = [counts.get(i, 0) for i in range(args.len_LLM)]  
             print(f"{result_sparse_list=}")
             logging.info(f"#selected samples from each PLM in the prompt list: {result_sparse_list}")
@@ -2709,17 +2738,32 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
 
                 # prepare few-shot prompt
-                few_shot_samples = ''
-                for i_sample in range(args.gen_few_shot_k):
-                    if im == 0:
-                        print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                        print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
-                        logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                        logging.info(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
-                    few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}\n'
-                prompt = FEW_SHOT_PROMPT[args.task_name]
-                for key in prompt["labels"].keys():
-                    prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
+                if args.gen_by_class == 0: # all labels share the same prompt
+                    few_shot_samples = ''
+                    for i_sample in range(args.gen_few_shot_k):
+                        if im == 0:
+                            print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
+                            # print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
+                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
+                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                        few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}\n'
+                    prompt = FEW_SHOT_PROMPT[args.task_name]
+                    for key in prompt["labels"].keys():
+                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
+                else: # each label has its own prompt
+                    prompt = FEW_SHOT_PROMPT[args.task_name]
+                    for i_key, key in enumerate(prompt["labels"].keys()):
+                        few_shot_samples = ''
+                        for i_sample in range(args.gen_few_shot_k):
+                            if im == 0:
+                                print(f"{key=}, {i_key=} {i_sample=}")
+                                print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                                print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                                logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                                logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
+                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
                 with open(args.gen_task_file, "w") as task_file:
                     json.dump(prompt, task_file)
                 # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")
@@ -2838,6 +2882,7 @@ if __name__ == "__main__":
     parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") 
     parser.add_argument("--unbalance_generation_temperature", type=float, default=1.0, help="temperature for soften the number of synthetic samples for generation for each PLM")
     parser.add_argument("--voted_sample_select", type=str, default='top', help="the method of getting samples from the voting result, including using the top and histogram-based-random-sampling as ['top', 'sampling', ...]") #,'influenceCartography'
+    parser.add_argument("--gen_by_class", type=int, default=0, help="whether the generation prompt is by class or overall, 0=overall, 1=byclass")
 
     # # Required parameters for evaluating synthetic data
     # parser.add_argument("--query_output_dir", type=str, #required=True,
@@ -2943,7 +2988,7 @@ if __name__ == "__main__":
     args.model_name_sample = f'{args.task_name}/[mix]_{args.llms[0]}_{args.num_use_samples_inner[0]}' if args.mix else f'{args.task_name}/{args.llms[0]}_{args.num_use_samples_inner[0]}'
     for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
         args.model_name_sample += f'__{_model}_{num_samples_inner}'
-    args.save_path=os.path.join(f'results/multiGold_with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
+    args.save_path=os.path.join(f'results/multiGold_with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
     args.save_path = f"{args.save_path}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.max_outer_iter}_{args.seed}"
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -2955,12 +3000,12 @@ if __name__ == "__main__":
     log_format = '%(asctime)s [%(levelname)s]: %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                         format=log_format, datefmt='%m/%d %I:%M:%S %p')
-    if not os.path.exists(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
-        os.makedirs(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
-    fh = logging.FileHandler(os.path.join(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
+    if not os.path.exists(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
+        os.makedirs(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
+    fh = logging.FileHandler(os.path.join(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
-    args.result_file_path = f'./results/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
+    args.result_file_path = f'./results/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
     if not os.path.exists(args.result_file_path):
         os.makedirs(args.result_file_path)
 
@@ -3062,11 +3107,11 @@ if __name__ == "__main__":
 
         for im in range(args.len_LLM):
             args.init_sample_path.append(f'data_accumulate_start/{args.task_name}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}/train.jsonl')
-            args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
+            args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             if not os.path.exists(args.working_sample_dir[im]):
                 os.makedirs(args.working_sample_dir[im])
             # args.working_sample_path.append(f'{args.working_sample_dir[im]}train.jsonl')
-            args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
+            args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
                 prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
         

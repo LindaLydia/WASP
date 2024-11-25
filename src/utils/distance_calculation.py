@@ -416,7 +416,12 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
     total_num_classes = args.num_classes
     gold_data_list = [_gold_loader.dataset for _gold_loader in gold_loader]
     print(f"{len(train_data)=}, {[len(train_data[i].idx) for i in range(len(train_data))]}")
+    for _im, _data in enumerate(train_data):
+        for _i, (_text, _label) in enumerate(zip(_data.text, _data.label)):
+            print(f"[debug] before data merge, sample #{_i} in model#{_im} with label {_label} is {_text}")
     total_data = merge_all_dataset(args, train_data, max_sample_count_for_total=-1)
+    for _i, (_text, _label) in enumerate(zip(total_data.text, total_data.label)):
+        print(f"[debug] after data merge, sample #{_i} with label {_label} is {_text}")
     
     local_accumulate_samples = [0]
     for im in range(len(train_data)):
@@ -447,6 +452,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
         gold_label_list.append(gold_label)
     total_syn_loader = DataLoader(total_data, batch_size=args.train_batch_size, shuffle=False)
     syn_embedding, syn_label = get_embedding(args, embedding_model, total_syn_loader)
+    print(f"[debug] after embedding, {syn_label=}")
     syn_embedding = torch.tensor(syn_embedding)
     print(f"{[gold_embedding.shape for gold_embedding in gold_embedding_list]=}, {syn_embedding.shape=}")
     # ######## get all the embeddings ########
@@ -514,6 +520,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
     for i_class in range(total_num_classes):
         nearest_sample_voting_for_class = [0.0]*len(total_data)
         nearest_sample_voting_for_class = [nearest_sample_voting[_i]*(1.0 if syn_label[_i]==i_class else 0.0) for _i in range(len(total_data))]
+        print(f"[debug] after class masking, {nearest_sample_voting_for_class=}")
         nearest_sample_voting_for_class = np.asarray(nearest_sample_voting_for_class)
         nearest_sample_voting_for_class =  nearest_sample_voting_for_class / np.sum(nearest_sample_voting_for_class)
 
