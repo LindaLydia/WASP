@@ -1,13 +1,14 @@
 import torch
 # from transformers import BertTokenizer, BertForSequenceClassification, AdamW
 from torch.utils.data import DataLoader, Dataset
+import numpy as np
 import json
 import random
 import copy
 
 # Load and preprocess data from the jsonl file
 class TokenizedDataset(Dataset):
-    def __init__(self, file_path='', text_column='text', label_column='label', index_column='idx', is_syn_column='is_syn', tokenizer=None, max_length=512, device='cpu', max_sample=-1, small_dataset_shuffle=False):
+    def __init__(self, file_path='', text_column='text', label_column='label', index_column='idx', is_syn_column='is_syn', tokenizer=None, max_length=512, device='cpu', max_sample=-1, small_dataset_shuffle=False, ood_dataset=False):
         self.text = []
         self.ids = []
         self.attention_mask = []
@@ -56,7 +57,115 @@ class TokenizedDataset(Dataset):
                         if max_sample > 0 and counter == max_sample:
                             break
         else:
-            if ('imdb' in file_path and (0 < max_sample < 1000)) or small_dataset_shuffle==True:
+            if ood_dataset == True:
+                lines, labels = [], []
+                # with open(file_path, 'r') as file:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                    for line in file:
+                        lines.append(line)
+                        labels.append(json.loads(line.strip())[label_column])
+                unique_labels = np.unique(labels)
+                num_classes = len(unique_labels)
+                sample_per_class = np.random.dirichlet([0.3] * num_classes)
+                while max(sample_per_class) / min(sample_per_class) < 2:
+                    sample_per_class = np.random.dirichlet([0.3] * num_classes)
+                total_sample_count = (len(lines) if max_sample==-1 else max_sample)
+                sample_per_class = (sample_per_class * total_sample_count).astype(int)
+                sample_per_class[-1] = total_sample_count - np.sum(sample_per_class[:-1])
+                sample_per_class = list(sample_per_class)
+                print(f"{sample_per_class=} for unbalance")
+                random.shuffle(lines)
+                counter = [0] * num_classes
+                # for i_label, label in enumerate(unique_labels):
+                for line in lines:
+                    item = json.loads(line.strip())
+                    text = item[text_column]
+                    label = int(item[label_column])  # Assuming your jsonl file contains a 'label' field
+                    label_idx = np.where(unique_labels == label)[0][0] # "np.where" returns e.g. (array([3]),)
+                    if counter[label_idx] >= sample_per_class[label_idx]:
+                        continue
+                    # idx = item[index_column]
+                    if is_syn_column != None:
+                        if is_syn_column.lower() == 'true':
+                            syn_indicator = True
+                        elif is_syn_column.lower() == 'false':
+                            syn_indicator = False
+                        else:
+                            syn_indicator = bool(item[is_syn_column])
+                    else:
+                        syn_indicator = True
+                    tokenized = tokenizer.encode_plus(
+                        text,
+                        add_special_tokens=True,
+                        max_length=max_length,
+                        padding='max_length',
+                        truncation=True,
+                        return_attention_mask=True,
+                        return_tensors='pt',
+                    )
+                    self.text.append(text)
+                    self.ids.append(tokenized['input_ids'])
+                    self.attention_mask.append(tokenized['attention_mask'])
+                    self.label.append(label)
+                    self.idx.append(np.sum(counter)) # append counter this time, not the original idx
+                    self.is_syn.append(syn_indicator)
+                    counter[label_idx] += 1
+                    if counter == sample_per_class:
+                        break
+            elif ood_dataset == False and is_syn_column == 'false' and small_dataset_shuffle==True:
+                lines, labels = [], []
+                # with open(file_path, 'r') as file:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                    for line in file:
+                        lines.append(line)
+                        labels.append(json.loads(line.strip())[label_column])
+                unique_labels = np.unique(labels)
+                num_classes = len(unique_labels)
+                sample_per_class = np.asarray([1/num_classes] * num_classes)
+                total_sample_count = (len(lines) if max_sample==-1 else max_sample)
+                sample_per_class = (sample_per_class * total_sample_count).astype(int)
+                sample_per_class[-1] = total_sample_count - np.sum(sample_per_class[:-1])
+                sample_per_class = list(sample_per_class)
+                print(f"{sample_per_class=} for balance")                
+                random.shuffle(lines)
+                counter = [0] * num_classes
+                # for i_label, label in enumerate(unique_labels):
+                for line in lines:
+                    item = json.loads(line.strip())
+                    text = item[text_column]
+                    label = int(item[label_column])  # Assuming your jsonl file contains a 'label' field
+                    label_idx = np.where(unique_labels == label)[0][0] # "np.where" returns e.g. (array([3]),)
+                    if counter[label_idx] >= sample_per_class[label_idx]:
+                        continue
+                    # idx = item[index_column]
+                    if is_syn_column != None:
+                        if is_syn_column.lower() == 'true':
+                            syn_indicator = True
+                        elif is_syn_column.lower() == 'false':
+                            syn_indicator = False
+                        else:
+                            syn_indicator = bool(item[is_syn_column])
+                    else:
+                        syn_indicator = True
+                    tokenized = tokenizer.encode_plus(
+                        text,
+                        add_special_tokens=True,
+                        max_length=max_length,
+                        padding='max_length',
+                        truncation=True,
+                        return_attention_mask=True,
+                        return_tensors='pt',
+                    )
+                    self.text.append(text)
+                    self.ids.append(tokenized['input_ids'])
+                    self.attention_mask.append(tokenized['attention_mask'])
+                    self.label.append(label)
+                    self.idx.append(np.sum(counter)) # append counter this time, not the original idx
+                    self.is_syn.append(syn_indicator)
+                    counter[label_idx] += 1
+                    if counter == sample_per_class:
+                        break
+            elif ('imdb' in file_path and (0 < max_sample < 1000)) or small_dataset_shuffle==True:
                 lines = []
                 # with open(file_path, 'r') as file:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
@@ -70,9 +179,14 @@ class TokenizedDataset(Dataset):
                     label = item[label_column]  # Assuming your jsonl file contains a 'label' field
                     # idx = item[index_column]
                     if is_syn_column != None:
-                        syn_indicator = bool(item[is_syn_column])
+                        if is_syn_column.lower() == 'true':
+                            syn_indicator = True # synthetic data
+                        elif is_syn_column.lower() == 'false':
+                            syn_indicator = False # real data
+                        else:
+                            syn_indicator = bool(item[is_syn_column])
                     else:
-                        syn_indicator = False
+                        syn_indicator = True
                     tokenized = tokenizer.encode_plus(
                         text,
                         add_special_tokens=True,
@@ -100,15 +214,15 @@ class TokenizedDataset(Dataset):
                         text = item[text_column]
                         label = int(item[label_column])  # Assuming your jsonl file contains a 'label' field
                         # idx = int(item[index_column])
-                        if is_syn_column != None: # only for training data, test data should always be real data
-                            syn_indicator = bool(item[is_syn_column])
-                            # if syn_indicator == False: # only use synthetic data
-                            #     co
-                            # ntinue
-                            # if syn_indicator == True: # only use real data
-                            #     continue
+                        if is_syn_column != None:
+                            if is_syn_column.lower() == 'true':
+                                syn_indicator = True
+                            elif is_syn_column.lower() == 'false':
+                                syn_indicator = False
+                            else:
+                                syn_indicator = bool(item[is_syn_column])
                         else:
-                            syn_indicator = False
+                            syn_indicator = True
                         tokenized = tokenizer.encode_plus(
                             text,
                             add_special_tokens=True,
@@ -127,22 +241,11 @@ class TokenizedDataset(Dataset):
                         counter += 1
                         if max_sample > 0 and counter == max_sample:
                             break
-            # print("in TokenizedDataset init", self.text[0], self.ids[0], self.attention_mask[0], self.label[0], self.idx[0])
-            # print("in TokenizedDataset init", self.text[-1], self.ids[-1], self.attention_mask[-1], self.label[-1], self.idx[-1])
-            # print(self.ids)
-            # print(self.label)
-            # print(self.ids[-1].dtype)
-            # self.ids = torch.stack(self.ids).squeeze().to(device)
-            # self.attention_mask = torch.stack(self.attention_mask).squeeze().to(device)
-            # self.label = torch.tensor(self.label).long().to(device)
-            # self.idx = torch.tensor(self.idx).long().to(device)
             self.ids = torch.stack(self.ids).squeeze()
             self.attention_mask = torch.stack(self.attention_mask).squeeze()
             self.label = torch.tensor(self.label).long()
             self.idx = torch.tensor(self.idx).long()
             self.is_syn = torch.tensor(self.is_syn).bool()
-        # print(self.ids.shape, self.attention_mask.shape, self.label.shape, self.idx.shape, self.is_syn.shape)
-        # print(self.ids.dtype, self.attention_mask.dtype, self.label.dtype, self.idx.dtype)
 
     def __len__(self):
         return len(self.ids)

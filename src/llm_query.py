@@ -35,8 +35,10 @@ from utils.constant import PROMPTS
 def task2processor(task_name):
     if task_name == 'imdb':
         return IMDbProcessor
-    elif task_name == 'yelp':
+    elif 'yelp' in task_name:
         return YelpProcessor
+    elif 'openreview' in task_name:
+        return OpenReviewProcessor
     elif task_name == 'worksheet':
         return WorksheetProcessor
     elif task_name == 'sst-2':

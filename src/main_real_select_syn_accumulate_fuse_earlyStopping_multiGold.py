@@ -39,7 +39,7 @@ from transformers import AdamW
 from transformers import get_linear_schedule_with_warmup
 
 from utils.basic_utils import *
-from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT, SMALL_MODEL_WITH_TOKENIZER
+from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT, FEW_SHOT_PROMPT_PER_CLASS, SMALL_MODEL_WITH_TOKENIZER
 from utils.early_stopping import EarlyStopping
 from utils.distance_calculation import *
 from utils.reweight_train import *
@@ -168,7 +168,7 @@ def load_iters_lstm(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/'
         train_data, _ = data.TabularDataset.splits(
             path=train_data_path,
             train='train.jsonl',
@@ -347,7 +347,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             train_data_path = (f'{SYN_DATA_PATH}{args.task_name}/mix/{args.llms[i]}/{file_choose(args.separate_num_use_samples_inner[i])}/train.jsonl') if args.mix else (f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl')
         else:
             assert args.mix == False, "Setting error, --mix should be False with --steps > 0, but now --mix is True"
-            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/train.jsonl'
+            train_data_path = f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[i]}/{args.num_use_samples_inner[i]}_{args.num_use_samples_init[i]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/train.jsonl'
         train_data = TokenizedDataset(
             file_path=train_data_path,
             text_column='C',
@@ -356,7 +356,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             max_length=args.max_input_length,
             # device=args.device,
-            is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
+            is_syn_column=('is_syn' if 'worksheet' in args.task_name else 'true'),
             max_sample=args.sample_each_llm[i],
             small_dataset_shuffle=False,
         )
@@ -393,38 +393,45 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
 
     args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data_list[0].label))
 
-    print("golden train data")
-    gold_data = TokenizedDataset(
-        file_path=(gold_data_path+'train.jsonl'),
-        text_column='text',
-        label_column='label',
-        index_column='idx',
-        tokenizer=args.tokenizer,
-        device=args.device,
-        max_length=args.max_input_length,
-        max_sample=(args.gold_data_num if args.gold_data_num < 0 else ((args.gold_data_num+args.num_classes-1)//args.num_classes)*args.num_classes),
-        # max_sample=-1, # use all that is provided in the dataset file
-        is_syn_column=('is_syn' if 'worksheet' in args.task_name else None),
-        small_dataset_shuffle=True,
-    )
-    gold_data_list = split_gold_data_for_parties(args, gold_data)
-    
-    small_gold_train_data_list, small_gold_valid_data_list = [], []
-    for i_gold in range(args.gold_party_num):
-        indices = list(range(len(gold_data_list[i_gold].text)))
-        random.shuffle(indices)
-        gold_train_valid_pivot_point = int(len(gold_data_list[i_gold].text)*args.train_ratio)
-        small_gold_train_data = TokenizedDataset(
-            file_path=(''),
+    if args.gold_data == None:
+        print("golden train data")
+        gold_data = TokenizedDataset(
+            file_path=(gold_data_path+'train.jsonl'),
+            text_column='text',
+            label_column='label',
+            index_column='idx',
+            tokenizer=args.tokenizer,
+            device=args.device,
+            max_length=args.max_input_length,
+            max_sample=(args.gold_data_num if args.gold_data_num < 0 else ((args.gold_data_num+args.num_classes-1)//args.num_classes)*args.num_classes),
+            # max_sample=-1, # use all that is provided in the dataset file
+            is_syn_column=('is_syn' if 'worksheet' in args.task_name else 'false'),
+            small_dataset_shuffle=True,
+            ood_dataset=args.unbalance_gold,
         )
-        small_gold_train_data.copy_dataset(gold_data_list[i_gold], indices[:gold_train_valid_pivot_point], new_idx=True)
-        small_gold_valid_data = TokenizedDataset(
-            file_path=(''),
-        )
-        small_gold_valid_data.copy_dataset(gold_data_list[i_gold], indices[gold_train_valid_pivot_point:], new_idx=True)
-    train_data_list = train_data_list + gold_data_list
-    small_train_data_list = small_train_data_list + small_gold_train_data_list
-    small_valid_data_list = small_valid_data_list + small_gold_valid_data_list
+        gold_data_list = split_gold_data_for_parties(args, gold_data)
+        _sample_per_class = [[len(torch.where(_gold_data.label==i_class)[0]) for i_class in range(args.num_classes)] for _gold_data in gold_data_list]
+        for _i_party in range(args.gold_party_num):
+            logging.info(f"gold party#{_i_party} has {_sample_per_class[_i_party]} samples per class")
+
+        small_gold_train_data_list, small_gold_valid_data_list = [], []
+        for i_gold in range(args.gold_party_num):
+            indices = list(range(len(gold_data_list[i_gold].text)))
+            random.shuffle(indices)
+            gold_train_valid_pivot_point = int(len(gold_data_list[i_gold].text)*args.train_ratio)
+            small_gold_train_data = TokenizedDataset(
+                file_path=(''),
+            )
+            small_gold_train_data.copy_dataset(gold_data_list[i_gold], indices[:gold_train_valid_pivot_point], new_idx=True)
+            small_gold_valid_data = TokenizedDataset(
+                file_path=(''),
+            )
+            small_gold_valid_data.copy_dataset(gold_data_list[i_gold], indices[gold_train_valid_pivot_point:], new_idx=True)
+        # train_data_list = train_data_list + gold_data_list
+        # small_train_data_list = small_train_data_list + small_gold_train_data_list
+        # small_valid_data_list = small_valid_data_list + small_gold_valid_data_list
+    else:
+        gold_data_list = args.gold_data
 
     print("test dataset")
     test_data = TokenizedDataset(
@@ -436,7 +443,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         tokenizer=args.tokenizer,
         device=args.device,
         max_length=args.max_input_length,
-        is_syn_column=None,
+        is_syn_column='false',
         # max_sample=100 # use all that is provided in the dataset file
         max_sample=-1 # use all that is provided in the dataset file
     )
@@ -452,7 +459,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             device=args.device,
             max_length=args.max_input_length,
-            is_syn_column=None,
+            is_syn_column='false',
             small_dataset_shuffle=False,
         )
         dev_data = TokenizedDataset(
@@ -464,7 +471,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             max_length=args.max_input_length,
             device=args.device,
             max_sample=num_use_samples_outer,
-            is_syn_column=None,
+            is_syn_column='false',
             small_dataset_shuffle=False,
         )
     else:
@@ -522,8 +529,14 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
     small_valid_iter_list = [DataLoader(dataset, batch_size=batch_size, shuffle=shuffle_train) for dataset in small_valid_data_list]
     train_iter_backward_list = [DataLoader(dataset, batch_size=backward_batch_size, shuffle=shuffle_train) for dataset in train_data_list]
     dev_iter = DataLoader(dev_data, batch_size=batch_size, shuffle=shuffle_train)
-    gold_iter = [DataLoader(dataset, batch_size=batch_size, shuffle=True) for dataset in gold_data_list]
-    test_iter = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+    if args.gold_iter == None:
+        gold_iter = [DataLoader(dataset, batch_size=batch_size, shuffle=True) for dataset in gold_data_list]
+    else:
+        gold_iter = args.gold_iter
+    if args.test_iter == None:
+        test_iter = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+    else:
+        test_iter = args.test_iter
 
     # for im, small_train_data in enumerate(train_data_list):
     #     # if im != len(small_train_data_list)-1:
@@ -539,7 +552,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
     #         break
 
     print(f'[debug] before exiting load iter: len(train_iter_list)={len(train_iter_list)}, len(train_data_list)={len(train_data_list)}')
-    return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, gold_iter, test_iter, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all, gold_data
+    return train_iter_list, small_train_iter_list, small_valid_iter_list, train_iter_backward_list, dev_iter, gold_iter, test_iter, train_data_list, small_train_data_list, small_valid_data_list, dev_data_all, gold_data_list
 
 
 def count_parameters(model):
@@ -676,12 +689,18 @@ def train(args, model, train_iter, dev_iter, loss_func, optimizer, epochs, patie
     return best_model
 
 
-def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge, inner_obj, test_loader, soft_label=None):
+def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge, inner_obj, test_loader, optimizer_state=None, soft_label=None):
     model_copy = copy.deepcopy(model)
     if args.optim =='Adam':
         optimizer = Adam(model_copy.parameters(), lr=args.inner_lr)
     elif args.optim =='SGD':
         optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        optimizer.load_state_dict(optimizer_state)
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(args.device)
     losses = AverageMeter("Loss", ":.3f")
     model_weights_cache = []
     opt_checkpoints_cache = []
@@ -776,17 +795,144 @@ def train_to_converge(args, model, train_data, valid_data, theta, epoch_converge
             # valid test for possible early stopping
             model_copy.eval()
             valid_acc, valid_loss = eval(args, model_copy, valid_iter, name="validation", use_soft_label=False)
-            if early_stopping_judge(model_copy, train_loss, valid_loss):
+            if early_stopping_judge(model_copy, train_loss, valid_loss, optimizer):
                 diverged = False
                 print(f"Early stopping @ epoch#{epoch}, {train_loss=}, {valid_loss=}, stopping_status={early_stopping_judge.status}")
                 model_copy = early_stopping_judge.best_model
+                optimizer = early_stopping_judge.best_model_optimizer
                 break
             else:
                 print(f"Continue training @ epoch#{epoch}, {train_loss=}, {valid_loss=}")
 
     opt_checkpoints_cache.append(optimizer.state_dict())
     model_copy.to("cpu")
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to("cpu")
     model_weights_cache.append(copy.deepcopy(model_copy.state_dict()))
+    if math.isnan(loss.item()):
+        diverged = True
+    return model_copy, losses.avg, top1.avg, model_weights_cache, opt_checkpoints_cache, diverged
+
+
+def train_to_converge_save_ckp(args, model, train_data, valid_data, theta, epoch_converge, inner_obj, test_loader, optimizer_state=None, soft_label=None):
+    model_copy = copy.deepcopy(model)
+    if args.optim =='Adam':
+        optimizer = Adam(model_copy.parameters(), lr=args.inner_lr)
+    elif args.optim =='SGD':
+        optimizer = SGD(model_copy.parameters(), lr=args.inner_lr, momentum=0.9)
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        optimizer.load_state_dict(optimizer_state)
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(args.device)
+    losses = AverageMeter("Loss", ":.3f")
+    model_weights_cache = []
+    opt_checkpoints_cache = []
+    diverged = False
+    if args.small_model_name.upper() == 'LSTM':
+        # for data in train_data.examples:
+        #     print(data.idx, data.text, data.label)
+        train_iter, = BucketIterator.splits(
+            (train_data,),
+            batch_sizes=(args.train_batch_size,),
+            device=device,
+            sort_key=lambda x: len(x.text),
+            sort_within_batch=True,
+            repeat=False,
+            shuffle=args.shuffle_train,
+        )
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+        train_iter = DataLoader(train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
+        # print(f"{train_data[0]=}, {train_data[1]=}")
+    # print(f"[debug] in train_to_converge theta.shape={theta.shape}, len(train_data)={len(train_data)}")
+    if valid_data != None and epoch_converge>1:
+        valid_iter = DataLoader(valid_data, batch_size=args.train_batch_size, shuffle=False)
+        early_stopping_judge = EarlyStopping()
+    else:
+        valid_iter = None
+    
+    # print(f'a model on gpu, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+    # print(f"{theta.shape=}, {type(theta)=}")
+    for epoch in range(epoch_converge if (valid_data==None or epoch_converge==1) else int(epoch_converge*3)):
+        model_copy.to(args.device)
+        model_copy.train()
+        top1 = AverageMeter("OuterAcc@1", ":6.2f")
+        for batch in tqdm(train_iter):
+            if args.small_model_name.upper() == 'LSTM':
+                (inputs, lens), labels = batch.text, batch.label
+                idx = batch.idx
+                # print(f"{idx=}")
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                inputs, attention_mask, labels, idx = batch
+                inputs = inputs.to(args.device)
+                attention_mask = attention_mask.to(args.device)
+                labels = labels.to(args.device)
+                idx = idx.to(args.device)
+            
+            optimizer.zero_grad()
+            if args.small_model_name.upper() == 'LSTM':
+                output = model_copy(inputs, lens)
+            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+                output = model_copy(inputs, attention_mask=attention_mask, labels=labels).logits
+
+            if inner_obj == "ce":
+                if not args.normalize:
+                    loss = torch.mean(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])
+                else:
+                    loss = torch.sum(F.cross_entropy(output, labels, reduction='none').flatten()*theta[idx])/torch.sum(theta[idx])
+            elif inner_obj=='kl':
+                one_hot = torch.zeros(len(labels),len(args.num_classes)).cuda().scatter_(1, labels.view(-1, 1), args.init_label).cuda()
+                one_hot = F.softmax(one_hot, dim=1)
+                loss_vec = torch.mean(F.softmax(output, dim=1)*(F.log_softmax(output, dim=1)-torch.log(one_hot)), dim=1)
+                loss = torch.mean(loss_vec*theta[idx])
+            
+            if soft_label != None:
+                temperatured_output = F.softmax(output/args.kd_temperature, dim=-1)
+                temperatured_labels = F.softmax(soft_label[idx]/args.kd_temperature, dim=-1)
+                if not args.normalize:
+                    loss = args.kd_alpha * loss + (1-args.kd_alpha) * torch.mean(F.cross_entropy(temperatured_output, temperatured_labels, reduction='none').flatten()*theta[idx])
+                else:
+                    loss = args.kd_alpha * loss + (1-args.kd_alpha) * torch.sum(F.cross_entropy(temperatured_output, temperatured_labels, reduction='none').flatten()*theta[idx])/torch.sum(theta[idx])
+            train_loss = loss.item()
+            
+            if soft_label == None:
+                # print(f"{labels=}, {output=}, {labels.shape=}, {output.shape=}")
+                acc = loss_utils.accuracy(output, labels)
+            else:
+                acc = loss_utils.accuracy(output, torch.argmax(soft_label[idx],dim=-1))
+            top1.update(acc, labels.size(0))
+            losses.update(loss.item(), labels.size(0))
+            loss.backward()
+            optimizer.step()
+            # print(f'after a batch train, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+
+        opt_checkpoints_cache.append(optimizer.state_dict())
+        # model_weights_cache.append(copy.deepcopy(model_copy.to("cpu").state_dict()))
+        model_weights_cache.append(copy.deepcopy(model_copy.to("cpu")))
+
+        if valid_data != None and epoch_converge>1:
+            # valid test for possible early stopping
+            model_copy.eval()
+            valid_acc, valid_loss = eval(args, model_copy, valid_iter, name="validation", use_soft_label=False)
+            if early_stopping_judge(model_copy, train_loss, valid_loss, optimizer):
+                diverged = False
+                print(f"Early stopping @ epoch#{epoch}, {train_loss=}, {valid_loss=}, stopping_status={early_stopping_judge.status}")
+                model_copy = early_stopping_judge.best_model
+                optimizer = early_stopping_judge.best_model_optimizer
+                break
+            else:
+                print(f"Continue training @ epoch#{epoch}, {train_loss=}, {valid_loss=}")
+
+    model_copy.to("cpu")
+    if optimizer_state != None: # only when an optimizer.state_dict() is given, use the given one. Otherwise, use a new one
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to("cpu")
     if math.isnan(loss.item()):
         diverged = True
     return model_copy, losses.avg, top1.avg, model_weights_cache, opt_checkpoints_cache, diverged
@@ -1019,7 +1165,7 @@ def train_to_converge_with_weight_adjust_and_selection_fused(args, model, train_
         # if use all, put all the index together
         if selected_sample_rows == None or selected_sample_columns == None:
             selected_sample_rows, selected_sample_columns = [], []
-            for row in range(args.len_LLM+1):
+            for row in range(args.len_LLM):
                 for column in range(len(train_data[row].examples)):
                     selected_sample_rows.append(row)
                     selected_sample_columns.append(column)
@@ -1465,7 +1611,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
         total_data = TokenizedDataset(
             file_path=(''),
         )
-        total_data.clear_and_copy_dataset(train_data, [], args.len_LLM+1, new_idx=True)
+        total_data.clear_and_copy_dataset(train_data, [], args.len_LLM, new_idx=True)
         # selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
         # total_data.text = [] # clear all the samples
         # total_data.ids = [] # clear all the samples
@@ -1473,7 +1619,7 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
         # total_data.label = [] # clear all the samples
         # total_data.idx = [] # clear all the samples
         # total_data.is_syn = [] # clear all the samples
-        for row in range(args.len_LLM+1):
+        for row in range(args.len_LLM):
             accumulate_sampels.append(accumulate_sampels[-1]+len(train_data[row].idx)) 
             # for column in range(len(train_data[row].idx)):
             #     total_data.text += [train_data[row].text[column]]
@@ -2002,6 +2148,16 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     best_theta = theta # <list>
     
     total_small_train_data = merge_all_dataset(args, small_train_data, max_sample_count_for_total=-1)
+    args.accumulate_sampels_small_train = [0]
+    __i = 0
+    for _data in small_train_data:
+        # print(f"{__i=}, {args.accumulate_sampels_small_train=}")
+        # print(f"{__i=}, {args.accumulate_sampels_small_train[-1]=}")
+        # print(f"{__i=}, {len(_data)=}")
+        args.accumulate_sampels_small_train.append(args.accumulate_sampels_small_train[-1]+len(_data))
+    logging.info(f"In iter#{args.i_step}, small train data has {args.accumulate_sampels_small_train} samples")
+    print(f"In iter#{args.i_step}, small train data has {args.accumulate_sampels_small_train} samples")
+    args.accumulate_sampels_small_train = torch.tensor(args.accumulate_sampels_small_train, dtype=torch.long).to(args.device)
     total_valid_data = merge_all_dataset(args, small_valid_data, max_sample_count_for_total=-1)
     theta_total = []
     if args.use_sigmoid:
@@ -2155,8 +2311,8 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     # print(f"new theta[j] = {theta[j]}")
                     best_theta[j]=theta_score
             
-            # torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{_outer_iter}_main_separate_models.pth")
-            # torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{_outer_iter}_main_theta_acc.pth")
+            # torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{args.i_step}_main_separate_models.pth")
+            # torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{args.i_step}_main_theta_acc.pth")
         
             # ##################### train using all the synthetic samples for one model #####################
             theta_total_mapped = [copy.deepcopy(_theta) for _theta in theta_total]
@@ -2176,7 +2332,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
 
             if 'Reweight' in args.fuse_dataset_weight:
                 print_info = [f"crossing: all LLMs", "fused_adjust_iter", "train_loss_ft", "train_acc_ft", "test_acc_ft", "test_loss_ft"]
-                theta_total_mapped[0], model_copy_converged_ft, _, _ = solve_reweight_v2(args, args.fused_model, [total_small_train_data], [theta_total_mapped[0].detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
+                theta_total_mapped[0], model_copy_converged_ft, _, optimizer_weight_ckp_all_syn = solve_reweight_v2(args, args.fused_model, [total_small_train_data], [theta_total_mapped[0].detach()], (None,None), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=1, soft_label=None)
                 current_outer_iter_trained_more_steps_model.append(model_copy_converged_ft)
                 theta_total[0] = copy.deepcopy(theta_total_mapped[0])
                 theta_total_score = copy.deepcopy(theta_total[0])
@@ -2188,7 +2344,13 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge, args.inner_obj, test_loader)
                     print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                     if _outer_iter % args.check_ft_every==0:
-                        model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                        # model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                        model_copy_converged_ft, loss_ft, train_acc_ft, model_weight_ckp_all_syn, optimizer_weight_ckp_all_syn, _ = train_to_converge_save_ckp(args, model[0], total_small_train_data, total_valid_data, theta_total_mapped[0].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                        confidence_score = [None] * args.len_LLM
+                        variability_score = [None] * args.len_LLM
+                        for im in range(args.len_LLM):
+                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, model_weight_ckp_all_syn, small_train_data[im], plm_name=args.llms[im])
+                        torch.save((confidence_score, variability_score), f"{args.result_file_path}/iter{args.i_step}_self_confidence_variability.pth")
                 # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
                 # print(f"[debug] {args.use_dev_outer}")
                 if args.stochastic_outer and args.subset_outer:
@@ -2216,14 +2378,14 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 theta_total[0] = copy.deepcopy(theta_total_mapped[0])
                 theta_total_score = copy.deepcopy(theta_total[0])
                 best_theta_total[0]=theta_total_score
-            # torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{_outer_iter}_main_separate_models.pth")
-            # torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{_outer_iter}_main_theta_acc.pth")
+            # torch.save(tuple(current_outer_iter_trained_more_steps_model+[args.fused_model]), f"{args.result_file_path}/iter{args.i_step}_main_separate_models.pth")
+            # torch.save((theta_mapped, model_total_acc),f"{args.result_file_path}/iter{args.i_step}_main_theta_acc.pth")
             # ##################### train using all the synthetic samples for one model #####################
 
 
 
         # ###### train with gold_training data ######
-        # ###### [m_{train_using_all_syn}^{gold_data[0]}, m_{train_using_all_syn}^{gold_data[1]}, ..., m_{train_using_all_syn}^{gold_data[L]}]
+        # ###### [m_{train_using_all_syn}^{gold_data_list[0]}, m_{train_using_all_syn}^{gold_data_list[1]}, ..., m_{train_using_all_syn}^{gold_data_list[L]}]
         current_outer_iter_trained_model_iter0_after_gold = [] 
         current_outer_iter_trained_more_steps_model_iter0_after_gold = []
         current_outer_iter_trained_model_after_gold = []
@@ -2233,10 +2395,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"training STM with gold data from data party #{i_party}")
             diverged = True # diverged==True means loss==nan, which means the training failed
             while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                 if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
             # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
             # print(f"[debug] {args.use_dev_outer}")
             if args.stochastic_outer and args.subset_outer:
@@ -2261,7 +2423,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
 
         # ---------------------------
         # TODO: how to deal with the mislabeled part???
-        # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold_for_each(args, current_outer_iter_trained_more_steps_model[-1], current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
+        # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, current_outer_iter_trained_more_steps_model[-1], current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
         # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
         # print(f"saved changes")
         # ---------------------------
@@ -2276,6 +2438,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
         # ###### FedAVG with the L model trained using gold data from each party ######
 
+        # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], small_train_data)
+        # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
+        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, model_average_loss = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], [total_small_train_data])
+        torch.save(([dataset.text for dataset in [total_small_train_data]], [dataset.label for dataset in [total_small_train_data]], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/iter{args.i_step}_sample_pred_change.pth")
 
         # use the first model for further calculation
         current_outer_iter_trained_model = current_outer_iter_trained_model_iter0
@@ -2459,11 +2625,11 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             if 'Cartography' in args.gen_sample_select:
                 # variability-based sample categorization
                 if 'Flip' in args.fuse_dataset_sample_selection:
-                    new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
+                    # new_total_valid_data = merge_all_dataset(args, new_small_valid_data)
                     for im in range(args.len_LLM):
                         confidence_score[im], variability_score[im] = run_divergence_calculation(args, new_current_outer_iter_trained_more_steps_model, new_small_train_data[im])
                 else:
-                    total_valid_data = merge_all_dataset(args, small_valid_data)
+                    # total_valid_data = merge_all_dataset(args, small_valid_data)
                     if 'CartographyWithReal' in args.gen_sample_select:
                         for im in range(args.len_LLM):
                             confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold, small_train_data[im], plm_name=args.llms[im])
@@ -2474,16 +2640,21 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 top_ambiguous_easy_to_learn_idx, selected_indices = sample_dynamic_selection(confidence_score, variability_score, args.gen_few_shot_k, args.gen_few_shot_pool_size, ambiguous_ratio=args.gen_few_shot_ambiguous_ratio, is_random=(args.gen_sample_select.replace('influence','')))
                 logging.info(f"#ambiguous & easy-to-learn samples of each PLM is {[len(top_ambiguous_easy_to_learn_idx[im]) for im in range(args.len_LLM)]}")
                 print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            elif 'GoldChange' in args.gen_sample_select:
+                selected_indices = sample_pred_change_after_gold_selection(loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, args.gen_few_shot_k, args.gen_few_shot_pool_size, is_random=(args.gen_sample_select.replace('influence','')))
+                # top_ambiguous_easy_to_learn_idx = sample_error_decreased_selection(error_per_sample_change, args.gen_few_shot_k, args.gen_few_shot_pool_size, is_random=(args.gen_sample_select.replace('influence','')))
 
             # distance-based voting
-            # if 'Flip' in args.fuse_dataset_sample_selection:
-            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
-            # else:
-            #     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
-            if 'Flip' in args.fuse_dataset_sample_selection:
-                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
-            else:
-                prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            if args.gen_by_class == 0: # different prompt for different class
+                if 'Flip' in args.fuse_dataset_sample_selection:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+                else:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            else: # same prompt for all classes
+                if 'Flip' in args.fuse_dataset_sample_selection:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+                else:
+                    prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
             print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             print(f"{prompt_samples_idx=}") # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
             logging.info(f"{prompt_samples_idx=}")
@@ -2497,12 +2668,24 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 torch.save((confidence_score, variability_score, nearest_sample_voting),f"{args.result_file_path}/iter{outer_iter}_variability_and_voting.pth")
                 assert confidence_score.shape==variability_score.shape==nearest_sample_voting.shape, f"[ERROR] should have the same shape, but now {confidence_score.shape=}, {variability_score.shape=}, {nearest_sample_voting.shape=}"
 
-            counts = Counter(x[0] for x in prompt_samples_idx)
+            if args.gen_by_class == 0:
+                counts = Counter(x[0] for x in prompt_samples_idx)
+            else:
+                all_prompt_samples_idx = []
+                for _idx_list in prompt_samples_idx:
+                    all_prompt_samples_idx += _idx_list
+                counts = Counter(x[0] for x in all_prompt_samples_idx)
             result_sparse_list = [counts.get(i, 0) for i in range(args.len_LLM)]  
             print(f"{result_sparse_list=}")
             logging.info(f"#selected samples from each PLM in the prompt list: {result_sparse_list}")
             if args.unbalance_generation == True:
-                model_sample_proportion = F.softmax((torch.tensor(model_voting_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
+                if 'GoldChange' in args.gen_sample_select:
+                    model_average_loss = torch.tensor(model_average_loss)
+                    model_score = (1/model_average_loss) / torch.sum(1/model_average_loss)
+                    print(f"{model_score=}")
+                    model_sample_proportion = F.softmax((torch.tensor(model_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
+                else:
+                    model_sample_proportion = F.softmax((torch.tensor(model_voting_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
                 num_use_samples_float = args.num_use_total_samples_each_step_extend * model_sample_proportion
                 args.num_use_samples_each_step_extend = num_use_samples_float.long() # no rounding, just keep the integer part
                 difference = args.num_use_total_samples_each_step_extend - torch.sum(args.num_use_samples_each_step_extend)
@@ -2552,20 +2735,40 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 args.gen_task_file = f'{gen_task_file_dir}task.json' # "A json file providing the instructions and other information required for dataset generation. "
                 args.gen_output_dir = args.working_sample_dir[im] # "The output directory to which the generated dataset is saved"
                 args.gen_model_name = args.llms[im] # "The pretrained model to use for dataset generation. Currently, only variants of GPT2 are supported."
-                args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
+                if 'Rating' in args.task_name:
+                    args.gen_num_entries_per_input = int((args.num_use_samples_each_step_extend[im]+9)//10)
+                elif 'Category' in args.task_name:
+                    args.gen_num_entries_per_input = int((args.num_use_samples_each_step_extend[im]+4)//5)
+                else:
+                    args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
 
                 # prepare few-shot prompt
-                few_shot_samples = ''
-                for i_sample in range(args.gen_few_shot_k):
-                    if im == 0:
-                        print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                        print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
-                        logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                        logging.info(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
-                    few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}\n'
-                prompt = FEW_SHOT_PROMPT[args.task_name]
-                for key in prompt["labels"].keys():
-                    prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
+                if args.gen_by_class == 0: # all labels share the same prompt
+                    few_shot_samples = ''
+                    for i_sample in range(args.gen_few_shot_k):
+                        if im == 0:
+                            print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
+                            # print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
+                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
+                            logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
+                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
+                        few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}\n'
+                    prompt = FEW_SHOT_PROMPT[args.task_name]
+                    for key in prompt["labels"].keys():
+                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
+                else: # each label has its own prompt
+                    prompt = FEW_SHOT_PROMPT_PER_CLASS[args.task_name]
+                    for i_key, key in enumerate(prompt["labels"].keys()):
+                        few_shot_samples = ''
+                        for i_sample in range(args.gen_few_shot_k):
+                            if im == 0:
+                                print(f"{key=}, {i_key=} {i_sample=}")
+                                print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                                print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                                logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                                logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
+                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
                 with open(args.gen_task_file, "w") as task_file:
                     json.dump(prompt, task_file)
                 # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")
@@ -2608,6 +2811,7 @@ if __name__ == "__main__":
     parser.add_argument('--scheduler', default="cosine", type=str)
     parser.add_argument('--gold_data_path', default=None, type=str)
     parser.add_argument('--gold_data_num', default=-1, type=int, help='number of golden data available for training')
+    parser.add_argument('--unbalance_gold', default=0, type=int, help='0=False: total golden data iid of the total dataset, i.e. balanced; 1=True: ood golden data compared to total real data, i.e. unbalance')
     parser.add_argument('--gold_party_num', default=-1, type=int, help='number of golden data party')
     parser.add_argument('--gold_split_dirichlet', default=0.1, type=float, help='non-iid data partition for multiple gold data party, [0.0, 0.01, 0.05, 0.1, 0.5],  0.0==>partition using class')
     parser.add_argument('--syn_data_path', default='data_new/', type=str)
@@ -2681,8 +2885,9 @@ if __name__ == "__main__":
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")
     parser.add_argument("--voting_dp_sigma", type=float, default=2.177888886, help="the level of noise for DP protection of the histogram for each party")
     parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") 
-    parser.add_argument("--unbalance_generation_temperature", type=float, default=3, help="temperature for soften the number of synthetic samples for generation for each PLM")
+    parser.add_argument("--unbalance_generation_temperature", type=float, default=1.0, help="temperature for soften the number of synthetic samples for generation for each PLM")
     parser.add_argument("--voted_sample_select", type=str, default='top', help="the method of getting samples from the voting result, including using the top and histogram-based-random-sampling as ['top', 'sampling', ...]") #,'influenceCartography'
+    parser.add_argument("--gen_by_class", type=int, default=0, help="whether the generation prompt is by class or overall, 0=overall, 1=byclass")
 
     # # Required parameters for evaluating synthetic data
     # parser.add_argument("--query_output_dir", type=str, #required=True,
@@ -2705,6 +2910,7 @@ if __name__ == "__main__":
     # print(f'here1, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
     args = parser.parse_args()
+    args.unbalance_gold = bool(args.unbalance_gold)
     if 'TestAll' in args.weight_adjust_criterial:
         args.fuse_dataset_sample_selection = 'all'
         print(args.fuse_dataset_sample_selection)
@@ -2787,7 +2993,7 @@ if __name__ == "__main__":
     args.model_name_sample = f'{args.task_name}/[mix]_{args.llms[0]}_{args.num_use_samples_inner[0]}' if args.mix else f'{args.task_name}/{args.llms[0]}_{args.num_use_samples_inner[0]}'
     for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
         args.model_name_sample += f'__{_model}_{num_samples_inner}'
-    args.save_path=os.path.join(f'results/multiGold_with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
+    args.save_path=os.path.join(f'results/multiGold_with_real_few_shot_accumulate_{SYN_DATA_PATH[:-1]}_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{SYN_DATA_PATH}', args.model_name_sample)
     args.save_path = f"{args.save_path}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.max_outer_iter}_{args.seed}"
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -2799,12 +3005,12 @@ if __name__ == "__main__":
     log_format = '%(asctime)s [%(levelname)s]: %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
                         format=log_format, datefmt='%m/%d %I:%M:%S %p')
-    if not os.path.exists(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
-        os.makedirs(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
-    fh = logging.FileHandler(os.path.join(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
+    if not os.path.exists(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/'):
+        os.makedirs(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/')
+    fh = logging.FileHandler(os.path.join(f'./logging/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/', f'log_{SYN_DATA_PATH[:-1]}_{args.BETA}_{args.seed}.txt'))
     fh.setFormatter(logging.Formatter(log_format))
     logging.getLogger().addHandler(fh)
-    args.result_file_path = f'./results/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
+    args.result_file_path = f'./results/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
     if not os.path.exists(args.result_file_path):
         os.makedirs(args.result_file_path)
 
@@ -2831,7 +3037,7 @@ if __name__ == "__main__":
         args.accumulate_sampels = [0]
         for _i in range(args.len_LLM):
             args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.num_use_samples_inner[_i])
-        args.accumulate_sampels.append(args.accumulate_sampels[-1]+len(gold_data.text))
+        # args.accumulate_sampels.append(args.accumulate_sampels[-1]+len(gold_data.text))
         args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
 
         # initialize all the 'local' and 'global' model as the same model parameters
@@ -2900,13 +3106,17 @@ if __name__ == "__main__":
         # for im in range(args.len_LLM):
         #     if os.path.exists(args.working_sample_dir[im]):
 
+        args.gold_iter = None
+        args.gold_data = None
+        args.test_iter = None
+
         for im in range(args.len_LLM):
             args.init_sample_path.append(f'data_accumulate_start/{args.task_name}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}/train.jsonl')
-            args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
+            args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             if not os.path.exists(args.working_sample_dir[im]):
                 os.makedirs(args.working_sample_dir[im])
             # args.working_sample_path.append(f'{args.working_sample_dir[im]}train.jsonl')
-            args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
+            args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
                 prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
         
@@ -2925,6 +3135,10 @@ if __name__ == "__main__":
             if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
                 args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data[0].label))
+                if args.gold_iter == None:
+                    args.gold_iter = gold_iter
+                    args.gold_data = gold_data
+                    args.test_iter = test_iter
             else: # lstm
                 train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
                 args.num_classes = len(LABEL.vocab.stoi)
@@ -2940,7 +3154,7 @@ if __name__ == "__main__":
             args.accumulate_sampels = [0]
             for _i in range(args.len_LLM):
                 args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.sample_each_llm[_i])
-            args.accumulate_sampels.append(args.accumulate_sampels[-1]+len(gold_data.text))
+            # args.accumulate_sampels.append(args.accumulate_sampels[-1]+len(gold_data.text))
             args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
 
             # initialize all the 'local' and 'global' model as the same model parameters

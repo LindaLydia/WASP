@@ -1,5 +1,6 @@
 # personalized
 src/data/
+src/*data/
 src/data_flip/
 src/data_new/
 src/data_*/

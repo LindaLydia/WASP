@@ -136,12 +136,27 @@ class DataGenerator:
         for i, indices in enumerate(tqdm(sampler)):
             to_add = []
             input_texts_or_ids = [input_texts[i] for i in indices]
-            for label in self.labels:
-                outputs = self._generate_dataset_entries(input_texts_or_ids, label=label,
-                                                         num_samples=num_entries_per_input,
-                                                         generate_with_inputs=generate_with_inputs)
+            if 'Rating' in self.task_name or 'Category' in self.task_name:
+                print(f"[INFO] enumerate through diverse Category or Rating score")
+                instruction_backup = self.instructions # save the original instruction with '{}'
+                attribute_list = ATTRIBUTE_LABELS[self.task_name]
+                for attribute in attribute_list:
+                    for label in self.labels:
+                        self.instructions[label] = self.instructions[label].format(attribute)
+                    for label in self.labels:
+                        outputs = self._generate_dataset_entries(input_texts_or_ids, label=label,
+                                                                num_samples=num_entries_per_input,
+                                                                generate_with_inputs=generate_with_inputs)
 
-                to_add += outputs
+                        to_add += outputs
+                self.instructions = instruction_backup # restore the original instruction with '{}'
+            else:
+                for label in self.labels:
+                    outputs = self._generate_dataset_entries(input_texts_or_ids, label=label,
+                                                            num_samples=num_entries_per_input,
+                                                            generate_with_inputs=generate_with_inputs)
+
+                    to_add += outputs
 
             to_add = postprocess_dataset(to_add, generate_with_inputs, task_name)
 
