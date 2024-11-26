@@ -39,7 +39,7 @@ from transformers import AdamW
 from transformers import get_linear_schedule_with_warmup
 
 from utils.basic_utils import *
-from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT, SMALL_MODEL_WITH_TOKENIZER
+from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT, FEW_SHOT_PROMPT_PER_CLASS, SMALL_MODEL_WITH_TOKENIZER
 from utils.early_stopping import EarlyStopping
 from utils.distance_calculation import *
 from utils.reweight_train import *
@@ -2735,7 +2735,12 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 args.gen_task_file = f'{gen_task_file_dir}task.json' # "A json file providing the instructions and other information required for dataset generation. "
                 args.gen_output_dir = args.working_sample_dir[im] # "The output directory to which the generated dataset is saved"
                 args.gen_model_name = args.llms[im] # "The pretrained model to use for dataset generation. Currently, only variants of GPT2 are supported."
-                args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
+                if 'Rating' in args.task_name:
+                    args.gen_num_entries_per_input = int((args.num_use_samples_each_step_extend[im]+9)//10)
+                elif 'Category' in args.task_name:
+                    args.gen_num_entries_per_input = int((args.num_use_samples_each_step_extend[im]+4)//5)
+                else:
+                    args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
 
                 # prepare few-shot prompt
                 if args.gen_by_class == 0: # all labels share the same prompt
@@ -2744,15 +2749,15 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                         if im == 0:
                             print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
                             # print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
-                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
                             logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
                         few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}\n'
                     prompt = FEW_SHOT_PROMPT[args.task_name]
                     for key in prompt["labels"].keys():
-                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
+                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
                 else: # each label has its own prompt
-                    prompt = FEW_SHOT_PROMPT[args.task_name]
+                    prompt = FEW_SHOT_PROMPT_PER_CLASS[args.task_name]
                     for i_key, key in enumerate(prompt["labels"].keys()):
                         few_shot_samples = ''
                         for i_sample in range(args.gen_few_shot_k):
@@ -2763,7 +2768,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                                 logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
                                 logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
                             few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
-                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, few_shot_samples)
+                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
                 with open(args.gen_task_file, "w") as task_file:
                     json.dump(prompt, task_file)
                 # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")
