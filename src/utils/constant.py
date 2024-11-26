@@ -49,6 +49,10 @@ PROMPTS = {
 FEW_SHOT_SAMPLE_TEMPLATE = {
     'imdb': 'The movie review is: ',
     'yelp': 'The restaurant review is: ',
+    'yelpCategory': 'The business review is: ',
+    'yelpRating': 'The business review is: ',
+    'openreviewCategory': 'The paper review is: ',
+    'openreviewRating': 'The paper review is: ',
     # 'mnli': {
     #     "entailment": "The sentence pair is: {} In other words, {}",
     #     "neutral": "The sentence pair is: {} Furthermore, {}",
