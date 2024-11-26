@@ -840,44 +840,44 @@ FEW_SHOT_PROMPT_PER_CLASS = {
         "stage": "x2",
         "labels": {
             "0": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Arts & Entertainment, a review for a business item also in the field of Arts & Entertainment with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Arts & Entertainment, a new review for a business item also in the field of Arts & Entertainment with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
             },
             "1": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Bars, a review for a business item also in the field of Bars with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Bars, a new review for a business item also in the field of Bars with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "2", "3", "4", "5", "6", "7", "8", "9"]
             },
             "2": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Beauty & Spas, a review for a business item also in the field of Beauty & Spas with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Beauty & Spas, a new review for a business item also in the field of Beauty & Spas with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "3", "4", "5", "6", "7", "8", "9"]
             },
             "3": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Event Planning & Services, a review for a business item also in the field of Event Planning & Services with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Event Planning & Services, a new review for a business item also in the field of Event Planning & Services with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "2", "4", "5", "6", "7", "8", "9"]
             },
             "4": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Grocery, a review for a business item also in the field of Grocery with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Grocery, a new review for a business item also in the field of Grocery with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "2", "3", "5", "6", "7", "8", "9"]
             },
             "5": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Health & Medical, a review for a business item also in the field of Health & Medical with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Health & Medical, a new review for a business item also in the field of Health & Medical with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "6", "7", "8", "9"]
             },
             "6": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Home & Garden, a review for a business item also in the field of Home & Garden with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Home & Garden, a new review for a business item also in the field of Home & Garden with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "7", "8", "9"]
             },
             "7": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Hotels & Travel, a review for a business item also in the field of Hotels & Travel with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Hotels & Travel, a new review for a business item also in the field of Hotels & Travel with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "8", "9"]
             },
             "8": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Restaurants, a review for a business item also in the field of Restaurants with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Restaurants, a new review for a business item also in the field of Restaurants with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "9"]
             },
             "9": {
-                "instruction": "{}\nBased on the above business reviews belong to the cateogry of Shopping, a review for a business item also in the field of Shopping with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
-                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Shopping, a new review for a business item also in the field of Shopping with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8"]
             },
         }
     },
@@ -886,23 +886,23 @@ FEW_SHOT_PROMPT_PER_CLASS = {
         "stage": "x2",
         "labels": {
             "0": {
-                "instruction": "{}\nBased on the above business reviews with rating 1.0 star(s), a review for a business item in the field of {} also with rating 1.0 star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews with rating 1.0 star(s), a new review for a business item in the field of {} also with rating 1.0 star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["1", "2", "3", "4"]
             },
             "1": {
-                "instruction": "{}\nBased on the above business reviews with rating 2.0 star(s), a review for a business item in the field of {} also with rating 2.0 star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews with rating 2.0 star(s), a new review for a business item in the field of {} also with rating 2.0 star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "2", "3", "4"]
             },
             "2": {
-                "instruction": "{}\nBased on the above business reviews with rating 3.0 star(s), a review for a business item in the field of {} also with rating 3.0 star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews with rating 3.0 star(s), a new review for a business item in the field of {} also with rating 3.0 star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "3", "4"]
             },
             "3": {
-                "instruction": "{}\nBased on the above business reviews with rating 4.0 star(s), a review for a business item in the field of {} also with rating 4.0 star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews with rating 4.0 star(s), a new review for a business item in the field of {} also with rating 4.0 star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "4"]
             },
             "4": {
-                "instruction": "{}\nBased on the above business reviews with rating 5.0 star(s), a review for a business item in the field of {} also with rating 5.0 star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews with rating 5.0 star(s), a new review for a business item in the field of {} also with rating 5.0 star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "3"]
             }
         }
@@ -919,6 +919,86 @@ FEW_SHOT_PROMPT_PER_CLASS = {
                 "instruction": "{}\nThe new restaurant review in positive sentiment which is diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0"]
             }
+        }
+    },
+    'openreviewCategory': {
+        "task_name": "openreviewCategory",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Applications (eg, speech processing, computer vision, NLP)', a new reviewe for a paper also in the area of 'Applications (eg, speech processing, computer vision, NLP)' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "1": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Deep Learning and representational learning', a new reviewe for a paper also in the area of 'Deep Learning and representational learning' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "2": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'General Machine Learning', a new reviewe for a paper also in the area of 'General Machine Learning' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "3": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Generative models', a new reviewe for a paper also in the area of 'Generative models' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "4": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Machine Learning for Sciences (eg biology, physics, health sciences, social sciences, climate/sustainability )', a new reviewe for a paper also in the area of 'Machine Learning for Sciences (eg biology, physics, health sciences, social sciences, climate/sustainability )' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "5": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Neuroscience and Cognitive Science (e.g., neural coding, brain-computer interfaces)', a new reviewe for a paper also in the area of 'Neuroscience and Cognitive Science (e.g., neural coding, brain-computer interfaces)' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "6", "7", "8", "9", "10", "11"]
+            },
+            "6": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Optimization (eg, convex and non-convex optimization)', a new reviewe for a paper also in the area of 'Optimization (eg, convex and non-convex optimization)' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "7", "8", "9", "10", "11"]
+            },
+            "7": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Probabilistic Methods (eg, variational inference, causal inference, Gaussian processes)', a new reviewe for a paper also in the area of 'Probabilistic Methods (eg, variational inference, causal inference, Gaussian processes)' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "8", "9", "10", "11"]
+            },
+            "8": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Reinforcement Learning (eg, decision and control, planning, hierarchical RL, robotics)', a new reviewe for a paper also in the area of 'Reinforcement Learning (eg, decision and control, planning, hierarchical RL, robotics)' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "9", "10", "11"]
+            },
+            "9": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Social Aspects of Machine Learning (eg, AI safety, fairness, privacy, interpretability, human-AI interaction, ethics)', a new reviewe for a paper also in the area of 'Social Aspects of Machine Learning (eg, AI safety, fairness, privacy, interpretability, human-AI interaction, ethics)' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "10", "11"]
+            },
+            "10": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Theory (eg, control theory, learning theory, algorithmic game theory)', a new reviewe for a paper also in the area of 'Theory (eg, control theory, learning theory, algorithmic game theory)' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "11"]
+            },
+            "11": {
+                "instruction": "{}\nBased on the above paper reviews of paper in the area 'Unsupervised and Self-supervised learning', a new reviewe for a paper also in the area of 'Unsupervised and Self-supervised learning' with final recommendation: '{}' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+            },
+        }
+    },
+    'openreviewRating': {
+        "task_name": "openreviewRating",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above paper reviews of final recommendation: '1: strong reject', a new review for a paper in the field of '{}' also with final recommendation: '1: strong reject' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["1", "2", "3", "4"]
+            },
+            "1": {
+                "instruction": "{}\nBased on the above paper reviews of final recommendation: '3: reject, not good enough', a new review for a paper in the field of '{}' also with final recommendation: '3: reject, not good enough' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "2", "3", "4"]
+            },
+            "2": {
+                "instruction": "{}\nBased on the above paper reviews of final recommendation: '5: marginally below the acceptance threshold', a new review for a paper in the field of '{}' also with final recommendation: '5: marginally below the acceptance threshold' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "3", "4"]
+            },
+            "3": {
+                "instruction": "{}\nBased on the above paper reviews of final recommendation: '6: marginally above the acceptance threshold', a new review for a paper in the field of '{}' also with final recommendation: '6: marginally above the acceptance threshold' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "4"]
+            },
+            "4": {
+                "instruction": "{}\nBased on the above paper reviews of final recommendation: '8: accept, good paper', a new review for a paper in the field of '{}' also with final recommendation: '8: accept, good paper' but diverse in the expression compared to the above given samples is: \"",
+                # "counter_labels": ["0", "1", "2", "3"]
+            },
         }
     },
     'mnli': {
