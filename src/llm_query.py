@@ -196,7 +196,14 @@ def gen_syn_data_few_shot(args):
                 inputs = None
             
             logging.info("Starting dataset generation...")
-            outputs = generator.generate_dataset(inputs, num_entries_per_input=(1 if 'nli' in args.task_name else args.gen_num_entries_per_input),
+            _num_entries_per_input = args.gen_num_entries_per_input
+            if 'nli' in args.task_name:
+                _num_entries_per_input = 1
+            elif 'Rating' in args.task_name:
+                _num_entries_per_input = int((args.gen_num_entries_per_input+9)//10)
+            elif 'Category' in args.task_name:
+                _num_entries_per_input = int((args.gen_num_entries_per_input+4)//5)
+            outputs = generator.generate_dataset(inputs, num_entries_per_input=_num_entries_per_input,
                                                  batch_size=args.gen_batch_size, log_every=args.gen_log_every, task_name=args.task_name)
 
             logging.info(f"Dataset generation complete, dataset contains {len(outputs)} entries before truncation")

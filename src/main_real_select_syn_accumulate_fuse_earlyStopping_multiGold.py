@@ -2735,12 +2735,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 args.gen_task_file = f'{gen_task_file_dir}task.json' # "A json file providing the instructions and other information required for dataset generation. "
                 args.gen_output_dir = args.working_sample_dir[im] # "The output directory to which the generated dataset is saved"
                 args.gen_model_name = args.llms[im] # "The pretrained model to use for dataset generation. Currently, only variants of GPT2 are supported."
-                if 'Rating' in args.task_name:
-                    args.gen_num_entries_per_input = int((args.num_use_samples_each_step_extend[im]+9)//10)
-                elif 'Category' in args.task_name:
-                    args.gen_num_entries_per_input = int((args.num_use_samples_each_step_extend[im]+4)//5)
-                else:
-                    args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
+                args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
 
                 # prepare few-shot prompt
                 if args.gen_by_class == 0: # all labels share the same prompt

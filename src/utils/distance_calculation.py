@@ -8,7 +8,7 @@ from tqdm import tqdm
 from transformers import BertModel, BertTokenizer
 from sentence_transformers import SentenceTransformer
 
-from utils.constant import MODEL_PATH, SENTENCE_TRANSFORMERS_PATH
+from utils.constant import MODEL_PATH, SENTENCE_TRANSFORMERS_PATH, SMALL_EPSILON
 from utils.basic_utils import merge_all_dataset
 
 
@@ -82,6 +82,7 @@ def find_nearest_syn_samples(args, train_data, gold_loader, count, sample_limita
     # ###### calculate model importance before eliminating some of the samples from being selected ######
     # ############# calculate model importance based on voting result #############
     nearest_sample_voting = np.asarray(nearest_sample_voting)
+    nearest_sample_voting += SMALL_EPSILON
     nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     model_voting_score = np.asarray([0.0]*args.len_LLM)
     for im in range(args.len_LLM):
@@ -99,6 +100,7 @@ def find_nearest_syn_samples(args, train_data, gold_loader, count, sample_limita
             sample_mask[_idx] = 1.0
         nearest_sample_voting = [nearest_sample_voting[_i]*sample_mask[_i] for _i in range(len(total_data))]
         nearest_sample_voting = np.asarray(nearest_sample_voting)
+        nearest_sample_voting += SMALL_EPSILON
         nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     # ############# eliminate samples that are not in sample_limitation if sample_limitation!=None #############
     
@@ -199,7 +201,7 @@ def find_nearest_syn_samples_byClass(args, train_data, gold_loader, count, sampl
         for _gold, _gold_label in zip(gold_embedding, gold_label):
             distances = torch.sqrt(((syn_embedding_each_class[_gold_label][0] - _gold)**2).sum(dim=-1))
             print(f"{distances.shape}")
-            _, top_k_indices = torch.topk(distances, k=args.real_voting_votes, largest=False)
+            _, top_k_indices = torch.topk(distances, k=min(args.real_voting_votes,len(syn_embedding_each_class[_gold_label][1])), largest=False)
             # top_k_vectors = syn_embedding_each_class[_gold_label][0][top_k_indices]
             # print(f"{top_k_vectors=}")
             for _i, _indice in enumerate(top_k_indices):
@@ -209,6 +211,7 @@ def find_nearest_syn_samples_byClass(args, train_data, gold_loader, count, sampl
     # ###### calculate model importance before eliminating some of the samples from being selected ######
     # ############# calculate model importance based on voting result #############
     nearest_sample_voting = np.asarray(nearest_sample_voting)
+    nearest_sample_voting += SMALL_EPSILON
     nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     model_voting_score = np.asarray([0.0]*args.len_LLM)
     for im in range(args.len_LLM):
@@ -226,6 +229,7 @@ def find_nearest_syn_samples_byClass(args, train_data, gold_loader, count, sampl
             sample_mask[_idx] = 1.0
         nearest_sample_voting = [nearest_sample_voting[_i]*sample_mask[_i] for _i in range(len(total_data))]
         nearest_sample_voting = np.asarray(nearest_sample_voting)
+        nearest_sample_voting += SMALL_EPSILON
         nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     # ############# eliminate samples that are not in sample_limitation if sample_limitation!=None #############
     
@@ -235,6 +239,7 @@ def find_nearest_syn_samples_byClass(args, train_data, gold_loader, count, sampl
         nearest_sample_voting_for_class = [nearest_sample_voting[_i]*(1.0 if syn_label[_i]==i_class else 0.0) for _i in range(len(total_data))]
         nearest_sample_voting_for_class = np.asarray(nearest_sample_voting_for_class)
         nearest_sample_voting_for_class = np.nan_to_num(nearest_sample_voting_for_class, nan=0.0)
+        nearest_sample_voting_for_class += SMALL_EPSILON
         if np.sum(nearest_sample_voting_for_class) == 0.0:
             nearest_sample_voting_for_class = np.asarray([1.0/nearest_sample_voting_for_class.size]*nearest_sample_voting_for_class.size)
         nearest_sample_voting_for_class =  nearest_sample_voting_for_class / np.sum(nearest_sample_voting_for_class)
@@ -355,6 +360,7 @@ def find_nearest_syn_samples_multi_data_party(args, train_data, gold_loader, cou
     # ###### calculate model importance before eliminating some of the samples from being selected ######
     # ############# calculate model importance based on voting result #############
     nearest_sample_voting = np.asarray(nearest_sample_voting)
+    nearest_sample_voting += SMALL_EPSILON
     nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     model_voting_score = np.asarray([0.0]*args.len_LLM)
     for im in range(args.len_LLM):
@@ -372,6 +378,7 @@ def find_nearest_syn_samples_multi_data_party(args, train_data, gold_loader, cou
             sample_mask[_idx] = 1.0
         nearest_sample_voting = [nearest_sample_voting[_i]*sample_mask[_i] for _i in range(len(total_data))]
         nearest_sample_voting = np.asarray(nearest_sample_voting)
+        nearest_sample_voting += SMALL_EPSILON
         nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     # ############# eliminate samples that are not in sample_limitation if sample_limitation!=None #############
     
@@ -475,7 +482,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
             for _gold, _gold_label in zip(gold_embedding, gold_label):
                 distances = torch.sqrt(((syn_embedding_each_class[_gold_label][0] - _gold)**2).sum(dim=-1))
                 print(f"{distances.shape}")
-                _, top_k_indices = torch.topk(distances, k=args.real_voting_votes, largest=False)
+                _, top_k_indices = torch.topk(distances, k=min(args.real_voting_votes,len(syn_embedding_each_class[_gold_label][1])), largest=False)
                 # top_k_vectors = syn_embedding_each_class[_gold_label][0][top_k_indices]
                 # print(f"{top_k_vectors=}")
                 for _i, _indice in enumerate(top_k_indices):
@@ -496,6 +503,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
     # ###### calculate model importance before eliminating some of the samples from being selected ######
     # ############# calculate model importance based on voting result #############
     nearest_sample_voting = np.asarray(nearest_sample_voting)
+    nearest_sample_voting += SMALL_EPSILON
     nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     model_voting_score = np.asarray([0.0]*args.len_LLM)
     for im in range(args.len_LLM):
@@ -513,6 +521,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
             sample_mask[_idx] = 1.0
         nearest_sample_voting = [nearest_sample_voting[_i]*sample_mask[_i] for _i in range(len(total_data))]
         nearest_sample_voting = np.asarray(nearest_sample_voting)
+        nearest_sample_voting += SMALL_EPSILON
         nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     # ############# eliminate samples that are not in sample_limitation if sample_limitation!=None #############
     
@@ -522,6 +531,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
         nearest_sample_voting_for_class = [nearest_sample_voting[_i]*(1.0 if syn_label[_i]==i_class else 0.0) for _i in range(len(total_data))]
         print(f"[debug] after class masking, {nearest_sample_voting_for_class=}")
         nearest_sample_voting_for_class = np.asarray(nearest_sample_voting_for_class)
+        nearest_sample_voting_for_class += SMALL_EPSILON
         nearest_sample_voting_for_class =  nearest_sample_voting_for_class / np.sum(nearest_sample_voting_for_class)
 
         if args.voted_sample_select == 'sampling':
@@ -702,6 +712,7 @@ def find_nearest_syn_samples_within_and_outside_class(args, train_data, gold_loa
     # ###### calculate model importance before eliminating some of the samples from being selected ######
     # ############# calculate model importance based on voting result #############
     nearest_sample_voting = np.asarray(nearest_sample_voting)
+    nearest_sample_voting += SMALL_EPSILON
     nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     model_voting_score = np.asarray([0.0]*args.len_LLM)
     for im in range(args.len_LLM):
@@ -719,6 +730,7 @@ def find_nearest_syn_samples_within_and_outside_class(args, train_data, gold_loa
             sample_mask[_idx] = 1.0
         nearest_sample_voting = [nearest_sample_voting[_i]*sample_mask[_i] for _i in range(len(total_data))]
         nearest_sample_voting = np.asarray(nearest_sample_voting)
+        nearest_sample_voting += SMALL_EPSILON
         nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     # ############# eliminate samples that are not in sample_limitation if sample_limitation!=None #############
     

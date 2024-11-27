@@ -5,7 +5,7 @@ import sys, os
 file_dir = './aug-pe-real-data/yelp/'
 
 create_label_map = True
-create_label_map = False
+# create_label_map = False
 
 for root, dirs, files in os.walk(file_dir):
     for file in files:

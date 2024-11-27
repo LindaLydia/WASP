@@ -179,6 +179,7 @@ class OpenReviewProcessor(GLUEProcessor):
         load_name = self.model_ckpt if self.model_ckpt is not None else self.model_name
         self.model = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH[load_name], num_labels=self.num_labels).to(self.device)
         self.data_collator = DataCollatorWithPadding(self.tokenizer)
+        self.sentence1_key, self.sentence2_key = 'text', None
 
     def load_dataset(self):
         data_path = f'data/openreview'

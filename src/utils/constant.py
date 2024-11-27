@@ -1,3 +1,5 @@
+SMALL_EPSILON = 1e-15
+
 MODEL_PATH = {
     'gpt2': "../../../.cache/huggingface/hub/models--gpt2/snapshots/11c5a3d5811f50298f278a704980280950aedb10/",
     'gpt2-xl': "../../../.cache/huggingface/hub/models--gpt2-xl/snapshots/33cdb5c0db5423c1879b1b9f16c352988e8754a8/",

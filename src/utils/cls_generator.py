@@ -29,7 +29,7 @@ import re
 from tasks import Processor
 from .basic_utils import save_jsonl
 from .datasets import GeneratedDataDataset
-from .constant import PROMPTS, TASK_NEED_SYN
+from .constant import PROMPTS, TASK_NEED_SYN, ATTRIBUTE_LABELS
 
 PLACEHOLDER_C = "<C>"
 PLACEHOLDER_X = "<X>"
