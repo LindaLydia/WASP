@@ -1380,6 +1380,11 @@ class LLMWrapper():
 
         inputs = {k: v.to(self._device) for k, v in inputs.items()}
 
+        for k, v in inputs.items():
+            print(f"{v=}, {v.shape=}, {k=}")
+            for batch_idx in range(batch_size):
+                print(f"[debug] in <generation.py>, {inputs[k][batch_idx]=}")
+
         # print(f"{inputs['attention_mask'].device=}, {inputs['input_ids'].device=}")
         if min_length is not None:
             min_length = min_length + seq_len

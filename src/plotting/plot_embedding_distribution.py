@@ -303,7 +303,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         if SYN_DATA_PATH == 'data_new/':
             train_data_path = f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl'
         else:
-            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp3/train.jsonl' # accumulate-adjust-2-2
+            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp3/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_200/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/100_20_20/train.jsonl' # accumulate-adjust-2-2
         print(f"{train_data_path=}")
@@ -984,9 +985,9 @@ if __name__ == "__main__":
 
     save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
 
-    # ############## calculate and save tsne ##############
-    # calculate_and_save_tsne(args)
-    # ############## calculate and save tsne ##############
+    ############## calculate and save tsne ##############
+    calculate_and_save_tsne(args)
+    ############## calculate and save tsne ##############
 
     # assert 1 == 0
 
@@ -1036,6 +1037,6 @@ if __name__ == "__main__":
     total_l2, within_class_l2, total_cos, within_class_cos = calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
     print(f"KL results: {total_l2=}, {within_class_l2=}, {total_cos=}, {within_class_cos=}")
 
-    # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
+    plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
 
 
