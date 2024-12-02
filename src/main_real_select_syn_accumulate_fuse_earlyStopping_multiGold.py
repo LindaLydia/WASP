@@ -391,7 +391,15 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         # args.samples_text[i] = [copy.deepcopy(text) for text in train_data.text]
         # print(f"[debug] sample_text has length {len(args.samples_text[i])}")
 
-    args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data_list[0].label))
+    all_label = []
+    for i in range(len(train_data_list)):
+        all_label += train_data_list[0].label
+    args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(all_label))
+    if 'Category' in args.task_name:
+        if 'yelp' in args.task_name:
+            args.num_classes = 10
+        elif 'openreview' in args.task_name:
+            args.num_classes = 12
 
     if args.gold_data == None:
         print("golden train data")
@@ -3016,7 +3024,7 @@ if __name__ == "__main__":
         print('num of use syn samples:{}'.format(args.num_use_samples_inner))
         if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
-            args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data[0].label))
+            args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(test_iter.dataset.label))
         else: # lstm
             train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
             args.num_classes = len(LABEL.vocab.stoi)
@@ -3129,7 +3137,7 @@ if __name__ == "__main__":
 
             if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
                 train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
-                args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(train_data[0].label))
+                args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(test_iter.dataset.label))
                 if args.gold_iter == None:
                     args.gold_iter = gold_iter
                     args.gold_data = gold_data
