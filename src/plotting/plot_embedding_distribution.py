@@ -22,7 +22,7 @@ from sklearn.feature_selection import mutual_info_classif, mutual_info_regressio
 from scipy.stats import entropy, gaussian_kde
 from scipy.spatial.distance import cdist
 
-# from plot_utils import *
+from plot_utils import *
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
@@ -852,7 +852,7 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
                     # print(_index, type(_index), len(_index))
                     # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
                     embeddings_label[i][label] = _embeddings_of_this_label
-                print(embeddings_label[i])
+                # print(embeddings_label[i])
 
             total_l2[int(i_step-1)], within_class_l2[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
             total_cos[int(i_step-1)], within_class_cos[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
@@ -862,8 +862,8 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
                 # ############# total_l2 and total_cos calculation #############
                 temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
                 temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
-                print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
-                print(type(temp_embeddings), type(real_embeddings))
+                # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
+                # print(type(temp_embeddings), type(real_embeddings))
                 l2_distances = cdist(temp_embeddings, real_embeddings, metric='euclidean')
                 cos_distances = cdist(temp_embeddings, real_embeddings, metric='cosine')
                 total_l2[int(i_step-1)][i] = l2_distances.sum()/l2_distances.size
@@ -899,6 +899,66 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
     return total_l2, within_class_l2, total_cos, within_class_cos
 
 
+def calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values):
+    total_fid = {}
+    within_class_fid = {}
+    if args.consider_real:
+        for i_step in range(1,args.steps+2):
+            embeddings_label = [{} for _ in range((args.len_LLM+1 if args.consider_real else args.len_LLM))] # key=label, value=list of embeddings belonging to this label from different LLMs
+            for ir, label in enumerate(label_unique_values):
+                # print(f"{ir=}, {label=}")
+                for _embeddings_label_for_each_model in embeddings_label:
+                    _embeddings_label_for_each_model[label] = []
+            for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+                # samples in the range: args.accumulate_sampels[i1]:args.accumulate_sampels[i1+1]
+                # but should be the end of the list with i==args.len_LLM
+                for ir, label in enumerate(label_unique_values):
+                    if i < args.len_LLM:
+                        _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                    else:
+                        _index = (labels[args.accumulate_sampels[i]:]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                    # print(_index, type(_index), len(_index))
+                    # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
+                    embeddings_label[i][label] = _embeddings_of_this_label
+                # print(embeddings_label[i])
+
+            total_fid[int(i_step-1)], within_class_fid[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
+            real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            for i in range(args.len_LLM):
+                # ############# total_fid calculation #############
+                temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
+                # print(type(temp_embeddings), type(real_embeddings))
+                fid_value = calculate_fid(temp_embeddings, real_embeddings)
+                total_fid[int(i_step-1)][i] = fid_value.sum()/fid_value.size
+                print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
+                # ############# total_fid calculation #############
+                
+                # ############# within_class_fid calculation #############
+                unique_label_counter = 0
+                for unique_label in embeddings_label[-1]:
+                    print(f"{unique_label=}, {len(embeddings_label[i][unique_label])=}, {len(embeddings_label[-1][unique_label])=}")
+                    if len(embeddings_label[-1][unique_label]) > 0:
+                        if len(embeddings_label[i][unique_label]) == 0:
+                            within_class_fid[int(i_step-1)][i] = float('inf')
+                            break
+                        else:
+                            unique_label_counter += 1
+
+                            fid_value = calculate_fid(embeddings_label[i][unique_label], embeddings_label[-1][unique_label])
+                            within_class_fid[int(i_step-1)][i] += fid_value.sum()/fid_value.size
+                            print(f"{fid_value=}, {within_class_fid[int(i_step-1)][i]=}")
+                    if within_class_fid[int(i_step-1)][i] != float('inf'):
+                        within_class_fid[int(i_step-1)][i] = within_class_fid[int(i_step-1)][i] / unique_label_counter
+                # ############# within_class_kl calculation #############
+    else:
+        print(f"[WARNING] Real samples not considered, no FID can be calculated")
+
+    return total_fid, within_class_fid
 
 
 def calculate_and_save_tsne(args):
@@ -985,9 +1045,9 @@ if __name__ == "__main__":
 
     save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
 
-    ############## calculate and save tsne ##############
-    calculate_and_save_tsne(args)
-    ############## calculate and save tsne ##############
+    # ############## calculate and save tsne ##############
+    # calculate_and_save_tsne(args)
+    # ############## calculate and save tsne ##############
 
     # assert 1 == 0
 
@@ -1034,9 +1094,13 @@ if __name__ == "__main__":
     # assert 1 == 0
     
     # total_kl, within_class_kl = calculate_KL(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    total_l2, within_class_l2, total_cos, within_class_cos = calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    print(f"KL results: {total_l2=}, {within_class_l2=}, {total_cos=}, {within_class_cos=}")
+    # print(f"KL results: {total_kl=}, {within_class_kl=}")
+    
+    # total_l2, within_class_l2, total_cos, within_class_cos = calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    # print(f"L2 & cosine-similarity results: {total_l2=}, {within_class_l2=}, {total_cos=}, {within_class_cos=}")
 
-    plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
+    total_fid, within_class_fid = calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    print(f"FID results: {total_fid=}, {within_class_fid=}")
 
+    # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
 

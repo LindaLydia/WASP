@@ -1370,7 +1370,7 @@ class LLMWrapper():
         regular_batch_size = len(input_texts) * num_samples
         inputs = input_texts + debiasing_texts
 
-        inputs = self._tokenizer(inputs, padding=True, return_tensors='pt')
+        inputs = self._tokenizer(inputs, padding=True, return_tensors='pt', truncation=True, max_length=(self.max_position_embeddings if 't5' in self.model_name else self.max_position_embeddings-self.args.gen_max_length))
         batch_size, seq_len = inputs['input_ids'].shape
 
         inputs['attention_mask'] = torch.flip(inputs['attention_mask'], dims=[1])
@@ -1505,7 +1505,7 @@ class SimpleLLM():
         regular_batch_size = len(input_texts) * 1
         # tokenizer = transformers.GPT2Tokenizer.from_pretrained('/home/DAIR/zouty/.cache/huggingface/hub/models--gpt2-xl/snapshots/33cdb5c0db5423c1879b1b9f16c352988e8754a8/')
 
-        inputs = self._tokenizer(input_texts, padding=True, return_tensors='pt')
+        inputs = self._tokenizer(input_texts, padding=True, return_tensors='pt', truncation=True, max_length=(self.max_position_embeddings if 't5' in self.model_name else self.max_position_embeddings-self.args.gen_max_length))
         inputs['input_ids'] = inputs['input_ids'][:,:self.max_position_embeddings-max_length]
         inputs['attention_mask'] = inputs['attention_mask'][:,:self.max_position_embeddings-max_length]
         # print(inputs['input_ids'].shape, inputs['attention_mask'].shape)
