@@ -394,7 +394,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
     all_label = []
     for i in range(len(train_data_list)):
         all_label += train_data_list[0].label
-    args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(all_label))
+    args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(torch.tensor(all_label)))
     if 'Category' in args.task_name:
         if 'yelp' in args.task_name:
             args.num_classes = 10
@@ -2694,16 +2694,18 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     model_sample_proportion = F.softmax((torch.tensor(model_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
                 else:
                     model_sample_proportion = F.softmax((torch.tensor(model_voting_score).to(args.device)/args.unbalance_generation_temperature), dim=-1)
+                args.num_use_total_samples_each_step_extend = args.num_use_total_samples_each_step_extend.to(args.device)
+                model_sample_proportion = model_sample_proportion.to(args.device)
                 num_use_samples_float = args.num_use_total_samples_each_step_extend * model_sample_proportion
-                args.num_use_samples_each_step_extend = num_use_samples_float.long() # no rounding, just keep the integer part
+                args.num_use_samples_each_step_extend = num_use_samples_float.long().to(args.device) # no rounding, just keep the integer part
                 difference = args.num_use_total_samples_each_step_extend - torch.sum(args.num_use_samples_each_step_extend)
                 if difference > 0: # Add 1 to the elements with the largest fractional part
                     fractional_part = num_use_samples_float - args.num_use_samples_each_step_extend
-                    adjustment_indices = torch.argsort(fractional_part, descending=True)[:difference.item()]
+                    adjustment_indices = torch.argsort(fractional_part, descending=True)[:difference.item()].to(args.device)
                     args.num_use_samples_each_step_extend[adjustment_indices] += 1
                 elif difference < 0: # Subtract 1 from the elements with the smallest fractional part
                     fractional_part = num_use_samples_float - args.num_use_samples_each_step_extend
-                    adjustment_indices = torch.argsort(fractional_part)[:abs(difference.item())]
+                    adjustment_indices = torch.argsort(fractional_part)[:abs(difference.item())].to(args.device)
                     args.num_use_samples_each_step_extend[adjustment_indices] -= 1
                 print(f"{model_sample_proportion=}, each model extend {args.num_use_samples_each_step_extend} in this step respectively")
                 logging.info(f"{model_sample_proportion=}, each model extend {args.num_use_samples_each_step_extend} in this step respectively")
