@@ -2540,9 +2540,11 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         if perform_few_shot_gen == True:
             print(f'here0-5, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             # TODO: select sample with ambiguous and easy to learn
+            
             importance_score = [None] * args.len_LLM
-            confidence_score = [None] * args.len_LLM
-            variability_score = [None] * args.len_LLM
+            if not 'CartographyOriginal' in args.gen_sample_select:
+                confidence_score = [None] * args.len_LLM
+                variability_score = [None] * args.len_LLM
             
             # # ########################### calculate influence score for top ambiguous and top easy-to-learn ###########################
             # if 'Flip' in args.fuse_dataset_sample_selection:
@@ -2641,7 +2643,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     if 'CartographyWithReal' in args.gen_sample_select:
                         for im in range(args.len_LLM):
                             confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold, small_train_data[im], plm_name=args.llms[im])
-                    else:
+                    elif not 'CartographyOriginal' in args.gen_sample_select:
                         for im in range(args.len_LLM):
                             confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im], plm_name=args.llms[im])
                 print(f"{confidence_score=}, {variability_score=}")
@@ -2884,7 +2886,7 @@ if __name__ == "__main__":
     parser.add_argument("--gen_batch_size", type=int, default=4, help="The batch size for generation (only if --input_file is not set)")
     parser.add_argument("--gen_max_length", type=int, default=40, help="The maximum output length for each generated text.")
     parser.add_argument("--gen_min_length", type=int, default=1, help="The minimum output length for each generated text.")
-    parser.add_argument("--gen_sample_select", type=str, default='Cartography', help="['influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography'
+    parser.add_argument("--gen_sample_select", type=str, default='Cartography', help="['CartographyOriginal', 'CartographyWithReal ,'influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography'
     parser.add_argument("--sentence_transformer", type=str, default='sentence-t5-base', help="the specified sentence transformer for embedding the input sample, set to 'none' if the STM is desired") #,'influenceCartography'
     parser.add_argument("--voting_range", type=str, default='all', help="find nearest synthetic sample within all the syn samples or within the same class, ['all', 'class']") 
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")

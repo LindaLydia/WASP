@@ -61,7 +61,7 @@ for plm_name in "${plm_list[@]}"; do
       # "data_new/"
     )
     for syn_data_path in "${strings[@]}"; do
-        python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms $plm_name --task_name imdb --num_use_samples_inner 6000 --gpu 1 --small_model_name bert-base-uncased --consider_real True --gold_data_num 10000
+        python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms $plm_name --task_name imdb --num_use_samples_inner 6000 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 10000
         # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 400 400 400 400 400 400 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 400
         # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 200 200 200 200 200 200 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 400
         # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 1000 1000 1000 1000 1000 1000 --gpu 2 --small_model_name bert-base-uncased

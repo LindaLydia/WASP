@@ -317,7 +317,7 @@ class EvaluationGenerator:
             for i, indices in enumerate(tqdm(sampler)):
                 # print("see here", i, indices)
                 input_texts, labels, indexs = gen_dataset[indices]
-                print("[debg] concept prompt:", self.instructions[concept])
+                print("[debug] concept prompt:", self.instructions[concept])
                 for i in range(len(input_texts)):
                     # input_texts[i] = task_chat_prompt + PROMPTS['human_speaking'] + " \"" + input_texts[i] + "\" " + self.instructions[concept] + PROMPTS['ai_speaking']
                     input_texts[i] = task_chat_prompt + "\"" + input_texts[i] + "\" " + self.instructions[concept]
