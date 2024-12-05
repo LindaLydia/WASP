@@ -1306,7 +1306,13 @@ class LLMWrapper():
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
             print("load 8-bit model=True")
             self.max_position_embeddings = 1024
-            quantization_config = BitsAndBytesConfig(load_in_8bit_fp32_cpu_offload=True)
+            # quantization_config = BitsAndBytesConfig(load_in_8bit_fp32_cpu_offload=True)
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16
+            )
             self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
             self._tokenizer = T5Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings, truncation=True, truncation_side="left")
         # elif 'vicuna' in model_name:
@@ -1380,10 +1386,10 @@ class LLMWrapper():
 
         inputs = {k: v.to(self._device) for k, v in inputs.items()}
 
-        for k, v in inputs.items():
-            print(f"{v=}, {v.shape=}, {k=}")
-            for batch_idx in range(batch_size):
-                print(f"[debug] in <generation.py>, {inputs[k][batch_idx]=}")
+        # for k, v in inputs.items():
+        #     print(f"{v=}, {v.shape=}, {k=}")
+        #     for batch_idx in range(batch_size):
+        #         print(f"[debug] in <generation.py>, {inputs[k][batch_idx]=}")
 
         # print(f"{inputs['attention_mask'].device=}, {inputs['input_ids'].device=}")
         if min_length is not None:
@@ -1437,7 +1443,13 @@ class SimpleLLM():
         elif 't5' in model_name:
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto")
             print("load 8-bit model=True")
-            quantization_config = BitsAndBytesConfig(load_in_8bit_fp32_cpu_offload=True)
+            # quantization_config = BitsAndBytesConfig(load_in_8bit_fp32_cpu_offload=True)
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16
+            )
             self._model = T5ForConditionalGeneration.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config)
             print(self._model.config)
             # self.max_position_embeddings = self._model.config.n_positions

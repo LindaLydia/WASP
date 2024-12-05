@@ -171,9 +171,9 @@ def weight_decay(args, current_outer_iter_trained_model, train_data, theta_mappe
             real_sample_beta = weighted_average_error_for_real_data/(1-weighted_average_error_for_real_data)
             if real_sample_beta > 1:
                 real_sample_beta = 1/real_sample_beta
-            print(f"[debug] {real_sample_beta=}")
-            print(f"{logtis_per_sample=}")
-            print(f"{logits_for_model_data[i][j]=}")
+            # print(f"[debug] {real_sample_beta=}")
+            # print(f"{logtis_per_sample=}")
+            # print(f"{logits_for_model_data[i][j]=}")
             # print(f"loss_per_sample={loss_per_sample}")
             # print(f"error_per_sample={error_per_sample}")
             # print(f"correctness_per_sample={correctness_per_sample}")
