@@ -440,6 +440,9 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
     nearest_sample_voting = [0.0]*len(total_data)
     nearest_sample_voting_per_party = [[0.0]*len(total_data) for _ in range(args.gold_party_num)]
     print(f"{len(nearest_sample_voting)=}")
+    furthest_sample_voting = [0.0]*len(total_data)
+    furthest_sample_voting_per_party = [[0.0]*len(total_data) for _ in range(args.gold_party_num)]
+    print(f"{len(furthest_sample_voting)=}")
     if args.sentence_transformer.upper() != 'NONE':
         # use specified sentence transformer
         embedding_model = SentenceTransformer(SENTENCE_TRANSFORMERS_PATH[args.sentence_transformer])
@@ -473,6 +476,9 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
                 _, top_k_indices = torch.topk(distances, k=args.real_voting_votes, largest=False)
                 for _i, _indice in enumerate(top_k_indices):
                     nearest_sample_voting_per_party[i_party][_indice] += 1/(2**_i)
+                _, top_k_indices = torch.topk(distances, k=args.real_voting_votes, largest=True)
+                for _i, _indice in enumerate(top_k_indices):
+                    furthest_sample_voting_per_party[i_party][_indice] += 1/(2**_i)        
         elif args.voting_range.lower() == 'class':
             unique_gold_label = np.unique(gold_label)
             syn_embedding_each_class = {}
@@ -483,21 +489,30 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
                 distances = torch.sqrt(((syn_embedding_each_class[_gold_label][0] - _gold)**2).sum(dim=-1))
                 print(f"{distances.shape}")
                 _, top_k_indices = torch.topk(distances, k=min(args.real_voting_votes,len(syn_embedding_each_class[_gold_label][1])), largest=False)
-                # top_k_vectors = syn_embedding_each_class[_gold_label][0][top_k_indices]
-                # print(f"{top_k_vectors=}")
                 for _i, _indice in enumerate(top_k_indices):
                     print(f"{_indice=} in class#{_gold_label}, which should be mapped to {syn_embedding_each_class[_gold_label][1][_indice]} in the total dataset")
                     nearest_sample_voting_per_party[i_party][syn_embedding_each_class[_gold_label][1][_indice]] += 1/(2**_i)
+                _, top_k_indices = torch.topk(distances, k=min(args.real_voting_votes,len(syn_embedding_each_class[_gold_label][1])), largest=True)
+                for _i, _indice in enumerate(top_k_indices):
+                    print(f"{_indice=} in class#{_gold_label}, which should be mapped to {syn_embedding_each_class[_gold_label][1][_indice]} in the total dataset")
+                    furthest_sample_voting_per_party[i_party][syn_embedding_each_class[_gold_label][1][_indice]] += 1/(2**_i)
     # ########## each data party vote using local private data ##########
 
 
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
     SIGMA = args.voting_dp_sigma / 100
+    # ### #
     nearest_sample_voting_per_party = np.asarray(nearest_sample_voting_per_party)
     for i_party in range(len(nearest_sample_voting_per_party)):
         nearest_sample_voting_per_party[i_party] += np.random.standard_normal(size=nearest_sample_voting_per_party[i_party].shape)*SIGMA
     nearest_sample_voting = np.sum(nearest_sample_voting_per_party, axis=0)
+    # ### #
+    furthest_sample_voting_per_party = np.asarray(furthest_sample_voting_per_party)
+    for i_party in range(len(furthest_sample_voting_per_party)):
+        furthest_sample_voting_per_party[i_party] += np.random.standard_normal(size=furthest_sample_voting_per_party[i_party].shape)*SIGMA
+    furthest_sample_voting = np.sum(furthest_sample_voting_per_party, axis=0)
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
+
 
 
     # ###### calculate model importance before eliminating some of the samples from being selected ######
@@ -505,13 +520,16 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
     nearest_sample_voting = np.asarray(nearest_sample_voting)
     nearest_sample_voting += SMALL_EPSILON
     nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
+    furthest_sample_voting = np.asarray(furthest_sample_voting)
+    furthest_sample_voting += SMALL_EPSILON
+    furthest_sample_voting = furthest_sample_voting / np.sum(furthest_sample_voting)
     model_voting_score = np.asarray([0.0]*args.len_LLM)
     for im in range(args.len_LLM):
         print(f"LLM #{im} has #sample={len(train_data[im].idx)}, ranging from [{local_accumulate_samples[im]},{local_accumulate_samples[im+1]}]")
         voting_score_sum = np.sum(nearest_sample_voting[local_accumulate_samples[im]:local_accumulate_samples[im+1]])
         model_voting_score[im] = (voting_score_sum * len(total_data.idx)) / (len(train_data[im].idx))
     torch.save((torch.tensor(nearest_sample_voting),torch.tensor(model_voting_score),local_accumulate_samples), f"{args.result_file_path}/real_vote_for_syn_{local_accumulate_samples}.pth")
-    print(f"{[i for i in range(len(nearest_sample_voting))]=}, {count=}, {len(nearest_sample_voting)=}, {nearest_sample_voting.shape=}")
+    torch.save((torch.tensor(furthest_sample_voting),total_data.text,total_data.label,local_accumulate_samples), f"{args.result_file_path}/real_vote_for_furthest_syn_{local_accumulate_samples}.pth")
     # ############# calculate model importance based on voting result #############
     
     # ############# eliminate samples that are not in sample_limitation if sample_limitation!=None #############
@@ -525,7 +543,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
         nearest_sample_voting = nearest_sample_voting / np.sum(nearest_sample_voting)
     # ############# eliminate samples that are not in sample_limitation if sample_limitation!=None #############
     
-    selected_sample_model_position_list = [[] for _ in range(total_num_classes)]
+    selected_sample_model_position_list = {"nearest": [[] for _ in range(total_num_classes)], "furthest": [[] for _ in range(total_num_classes)]}
     for i_class in range(total_num_classes):
         nearest_sample_voting_for_class = [0.0]*len(total_data)
         nearest_sample_voting_for_class = [nearest_sample_voting[_i]*(1.0 if syn_label[_i]==i_class else 0.0) for _i in range(len(total_data))]
@@ -566,8 +584,49 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
                     model_idx = im
                     break
             assert model_idx != -1, f"[ERROR] sample #{top_k_syn_samples_indices[ic]} not mapped into {local_accumulate_samples}"
-            selected_sample_model_position_list[i_class].append((model_idx,(top_k_syn_samples_indices[ic]-local_accumulate_samples[model_idx]).item()))
-    
+            selected_sample_model_position_list["nearest"][i_class].append((model_idx,(top_k_syn_samples_indices[ic]-local_accumulate_samples[model_idx]).item()))
+
+        # ################## furthest bad samples ##################
+        furthest_sample_voting_for_class = [0.0]*len(total_data)
+        furthest_sample_voting_for_class = [furthest_sample_voting[_i]*(1.0 if syn_label[_i]==i_class else 0.0) for _i in range(len(total_data))]
+        print(f"[debug] after class masking, {furthest_sample_voting_for_class=}")
+        furthest_sample_voting_for_class = np.asarray(furthest_sample_voting_for_class)
+        furthest_sample_voting_for_class += SMALL_EPSILON
+        furthest_sample_voting_for_class =  furthest_sample_voting_for_class / np.sum(furthest_sample_voting_for_class)
+        if args.voted_sample_select == 'sampling':
+            # ########### furthest_sample_voting_for_class is the probability for sampling ###########
+            # ########### random sample <#count> samples with the highest probability value (furthest_sample_voting value) ###########
+            if np.count_nonzero(furthest_sample_voting_for_class) < count:
+                print(f"None zero values in furthest_sample_voting_for_class is {np.count_nonzero(furthest_sample_voting_for_class)}, < number of required in-context sample {count}")
+                top_k_syn_samples_indices = np.random.choice([i for i in range(len(furthest_sample_voting_for_class))], size=count, p=furthest_sample_voting_for_class, replace=True)
+            else:
+                print(f"None zero values in furthest_sample_voting_for_class is {np.count_nonzero(furthest_sample_voting_for_class)}, >= number of required in-context sample {count}")
+                top_k_syn_samples_indices = np.random.choice([i for i in range(len(furthest_sample_voting_for_class))], size=count, p=furthest_sample_voting_for_class, replace=False)
+            print(f"{top_k_syn_samples_indices=}")
+            # ########### random sample <#count> samples with the highest probability value (furthest_sample_voting value) ###########
+        elif args.voted_sample_select == 'top':
+            # ########### sample the top-<#count> samples with the highest probability value (furthest_sample_voting value) ###########
+            if np.count_nonzero(furthest_sample_voting_for_class) < count:
+                print(f"None zero values in furthest_sample_voting_for_class is {np.count_nonzero(furthest_sample_voting_for_class)}, < number of required in-context sample {count}")
+                top_k_syn_samples_indices = np.random.choice([i for i in range(len(furthest_sample_voting_for_class))], size=count, p=furthest_sample_voting_for_class, replace=True)
+            else:
+                value_index_pairs = [(furthest_sample_voting_for_class[i], i) for i in range(len(furthest_sample_voting_for_class))]  
+                sorted_pairs = sorted(value_index_pairs, key=lambda x: x[0], reverse=True)  
+                # print(f"{count=}")
+                top_k_syn_samples_indices = [pair[1] for pair in sorted_pairs[:count]] 
+            print(f"{top_k_syn_samples_indices=}")
+            # ########### sample the top-<#count> samples with the highest probability value (furthest_sample_voting_for_class value) ###########
+        # change into [(im, ic), (im, ic), ..., (im, ic)] format
+        for ic in range(len(top_k_syn_samples_indices)):
+            model_idx = -1
+            for im in range(args.len_LLM):
+                if local_accumulate_samples[im] <= top_k_syn_samples_indices[ic] < local_accumulate_samples[im+1]:
+                    model_idx = im
+                    break
+            assert model_idx != -1, f"[ERROR] sample #{top_k_syn_samples_indices[ic]} not mapped into {local_accumulate_samples}"
+            selected_sample_model_position_list["furthest"][i_class].append((model_idx,(top_k_syn_samples_indices[ic]-local_accumulate_samples[model_idx]).item()))
+        # ################## furthest bad samples ##################
+
     return selected_sample_model_position_list, nearest_sample_voting, model_voting_score
 
 

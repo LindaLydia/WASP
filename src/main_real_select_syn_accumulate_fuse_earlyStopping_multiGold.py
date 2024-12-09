@@ -39,7 +39,7 @@ from transformers import AdamW
 from transformers import get_linear_schedule_with_warmup
 
 from utils.basic_utils import *
-from utils.constant import MODEL_PATH, SELF_WEIGHT_ADJUST_EPOCH, FEW_SHOT_SAMPLE_TEMPLATE, FEW_SHOT_PROMPT, FEW_SHOT_PROMPT_PER_CLASS, SMALL_MODEL_WITH_TOKENIZER
+from utils.constant import *
 from utils.early_stopping import EarlyStopping
 from utils.distance_calculation import *
 from utils.reweight_train import *
@@ -2428,7 +2428,43 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 logging.info(f"train after gold with data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
                 if args.wandb:
                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-
+        # ---------------------------
+        gold_theta_v2 = [None for _i_party in range(args.gold_party_num)] #, requires_grad=True
+        current_outer_iter_trained_model_iter0_after_gold_v2 = [] 
+        current_outer_iter_trained_more_steps_model_iter0_after_gold_v2 = []
+        current_outer_iter_trained_model_after_gold_v2 = []
+        current_outer_iter_trained_more_steps_model_after_gold_v2 = []
+        for i_party in range(args.gold_party_num):
+            mix_train_data = merge_all_dataset(args, [total_small_train_data]+[gold_iter[i_party].dataset], max_sample_count_for_total=-1)
+            gold_theta_v2[i_party] = torch.full([len(mix_train_data)], 0.5, dtype=torch.float, device=device)
+            print(f"training STM with synthetic data mixing with gold data from data party #{i_party}")
+            diverged = True # diverged==True means loss==nan, which means the training failed
+            while diverged:
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
+                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                if _outer_iter % args.check_ft_every==0:
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta[i_party].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+            # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+            # print(f"[debug] {args.use_dev_outer}")
+            if args.stochastic_outer and args.subset_outer:
+                if args.use_dev_outer:
+                    valid_loader = construct_outer_subloader(args, dev_data_all)
+                else:
+                    valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+            
+            current_outer_iter_trained_model_after_gold_v2.append(model_copy_converged)
+            current_outer_iter_trained_more_steps_model_after_gold_v2.append(model_copy_converged_ft)
+            if _outer_iter == 0:
+                current_outer_iter_trained_model_iter0_after_gold_v2.append(model_copy_converged)
+                current_outer_iter_trained_more_steps_model_iter0_after_gold_v2.append(model_copy_converged_ft)
+        
+            if _outer_iter % args.check_ft_every == 0:
+                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+                # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+                print(f"train after mixing with gold from data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                logging.info(f"train after mixing with gold from data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                if args.wandb:
+                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
         # ---------------------------
         # TODO: how to deal with the mislabeled part???
         # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, current_outer_iter_trained_more_steps_model[-1], current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
@@ -2445,6 +2481,14 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         if args.wandb:
             wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
         # ###### FedAVG with the L model trained using gold data from each party ######
+        # ###### FedAVG with the L model trained using synthetic mixed with gold data from each party ######
+        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold_v2)
+        test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
+        print(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        logging.info(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        if args.wandb:
+            wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # ###### FedAVG with the L model trained using synthetic mixed with gold data from each party ######
 
         # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], small_train_data)
         # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
@@ -2641,8 +2685,12 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 else:
                     # total_valid_data = merge_all_dataset(args, small_valid_data)
                     if 'CartographyWithReal' in args.gen_sample_select:
-                        for im in range(args.len_LLM):
-                            confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold, small_train_data[im], plm_name=args.llms[im])
+                        if 'V2' in args.gen_sample_select:
+                            for im in range(args.len_LLM):
+                                confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold_v2, small_train_data[im], plm_name=args.llms[im])
+                        else:
+                            for im in range(args.len_LLM):
+                                confidence_score[im], variability_score[im] = run_divergence_calculation(args, [current_outer_iter_trained_more_steps_model[-1]]+current_outer_iter_trained_more_steps_model_iter0_after_gold, small_train_data[im], plm_name=args.llms[im])
                     elif not 'CartographyOriginal' in args.gen_sample_select:
                         for im in range(args.len_LLM):
                             confidence_score[im], variability_score[im] = run_divergence_calculation(args, current_outer_iter_trained_more_steps_model, small_train_data[im], plm_name=args.llms[im])
@@ -2678,11 +2726,15 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 torch.save((confidence_score, variability_score, nearest_sample_voting),f"{args.result_file_path}/iter{outer_iter}_variability_and_voting.pth")
                 assert confidence_score.shape==variability_score.shape==nearest_sample_voting.shape, f"[ERROR] should have the same shape, but now {confidence_score.shape=}, {variability_score.shape=}, {nearest_sample_voting.shape=}"
 
+            if type(prompt_samples_idx) == type({}):
+                _prompt_samples_idx = []
+                for _key in prompt_samples_idx.keys():
+                    _prompt_samples_idx += prompt_samples_idx[_key]
             if args.gen_by_class == 0:
-                counts = Counter(x[0] for x in prompt_samples_idx)
+                counts = Counter(x[0] for x in _prompt_samples_idx)
             else:
                 all_prompt_samples_idx = []
-                for _idx_list in prompt_samples_idx:
+                for _idx_list in _prompt_samples_idx:
                     all_prompt_samples_idx += _idx_list
                 counts = Counter(x[0] for x in all_prompt_samples_idx)
             result_sparse_list = [counts.get(i, 0) for i in range(args.len_LLM)]  
@@ -2764,18 +2816,45 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     for key in prompt["labels"].keys():
                         prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
                 else: # each label has its own prompt
-                    prompt = FEW_SHOT_PROMPT_PER_CLASS[args.task_name]
-                    for i_key, key in enumerate(prompt["labels"].keys()):
-                        few_shot_samples = ''
-                        for i_sample in range(args.gen_few_shot_k):
-                            if im == 0:
-                                print(f"{key=}, {i_key=} {i_sample=}")
-                                print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
-                                print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
-                                logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
-                                logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
-                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
-                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
+                    if type(prompt_samples_idx) == type({'dictionary':1}):
+                        prompt = FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD[args.task_name]
+                        for i_key, key in enumerate(prompt["labels"].keys()):
+                            prompt_format_template = prompt["labels"][key]["instruction"]
+                            prompt["labels"][key]["instruction"] = []
+                            for _j in range(6):
+                                few_shot_samples = ''
+                                bad_sample_index = random.sample(range(args.gen_few_shot_k), args.gen_few_shot_k//2)
+                                good_sample_index = random.sample(range(args.gen_few_shot_k), args.gen_few_shot_k-args.gen_few_shot_k//2)
+                                for i_sample in bad_sample_index:
+                                    if im == 0:
+                                        print(f"{key=}, {i_key=} {i_sample=}")
+                                        print(f"{i_sample=}, {prompt_samples_idx['furthest'][i_key][i_sample][0]=}, {prompt_samples_idx['furthest'][i_key][i_sample][1]=}")
+                                        print(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
+                                        logging.info(f"{i_sample=}, {prompt_samples_idx['furthest'][i_key][i_sample][0]=}, {prompt_samples_idx['furthest'][i_key][i_sample][1]=}")
+                                        logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
+                                    few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_BAD[args.task_name]}{small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}\n"
+                                for i_sample in good_sample_index:
+                                    if im == 0:
+                                        print(f"{key=}, {i_key=} {i_sample=}")
+                                        print(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
+                                        print(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
+                                        logging.info(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
+                                        logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
+                                    few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_GOOD[args.task_name]}{small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}\n"
+                                prompt["labels"][key]["instruction"].append(prompt_format_template.format(few_shot_samples, '{}'))
+                    else: # should be a list containing all the in-context samples
+                        prompt = FEW_SHOT_PROMPT_PER_CLASS[args.task_name]
+                        for i_key, key in enumerate(prompt["labels"].keys()):
+                            few_shot_samples = ''
+                            for i_sample in range(args.gen_few_shot_k):
+                                if im == 0:
+                                    print(f"{key=}, {i_key=} {i_sample=}")
+                                    print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                                    print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                                    logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                                    logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                                few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
+                            prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
                 with open(args.gen_task_file, "w") as task_file:
                     json.dump(prompt, task_file)
                 # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")

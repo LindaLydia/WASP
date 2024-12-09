@@ -80,6 +80,11 @@ plm_list=("opt-6.7b")
 task_list=("imdb")
 # plm_list=("gpt2-xl")
 # task_list=("openreviewCategory")
+# plm_list=("gpt2-xl")
+# task_list=("openreviewCategory" "openreviewRating" "yelpCategory" "yelpRating")
+plm_list=("flan-t5-xl")
+task_list=("imdb")
+
 
 # 枚举列表中的每个字符串
 for task_name in "${task_list[@]}"; do
@@ -95,11 +100,12 @@ for task_name in "${task_list[@]}"; do
         )
         for syn_data_path in "${strings[@]}"; do
             # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms $plm_name --task_name $task_name --num_use_samples_inner 2400 --steps 1 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 100
-            python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms $plm_name --task_name $task_name --num_use_samples_inner 6000 --steps 4 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 100
+            # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms $plm_name --task_name $task_name --num_use_samples_inner 6000 --steps 4 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 100
             # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms $plm_name --task_name $task_name --num_use_samples_inner 1000 --steps 4 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 100
-            # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 400 400 400 400 400 400 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 400
-            # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 200 200 200 200 200 200 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 400
-            # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 1000 1000 1000 1000 1000 1000 --gpu 2 --small_model_name bert-base-uncased
+            python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms $plm_name --task_name $task_name --num_use_samples_inner 3600 --steps 2 --gpu 1 --small_model_name bert-base-uncased --consider_real True --gold_data_num 100
+            # # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 400 400 400 400 400 400 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 400
+            # # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 200 200 200 200 200 200 --gpu 0 --small_model_name bert-base-uncased --consider_real True --gold_data_num 400
+            # # python plotting/plot_embedding_distribution.py --small_model_name sentence-t5-base --syn_data_path $syn_data_path --llms gpt2-xl llama-2-7b-chat-hf vicuna-7b-1.5v opt-6.7b chatglm3-6b-base flan-t5-xl --task_name imdb --num_use_samples_inner 1000 1000 1000 1000 1000 1000 --gpu 2 --small_model_name bert-base-uncased
         done
     done
 done
