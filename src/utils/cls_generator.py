@@ -25,6 +25,7 @@ from transformers import DataCollatorWithPadding
 from datasets import Dataset
 import jsonlines
 import re
+import copy
 
 from tasks import Processor
 from .basic_utils import save_jsonl
@@ -136,27 +137,39 @@ class DataGenerator:
         for i, indices in enumerate(tqdm(sampler)):
             to_add = []
             input_texts_or_ids = [input_texts[i] for i in indices]
+            instruction_backup = copy.deepcopy(self.instructions) # save the original instruction with '{}'
             if 'Rating' in self.task_name or 'Category' in self.task_name:
                 print(f"[INFO] enumerate through diverse Category or Rating score")
-                instruction_backup = self.instructions # save the original instruction with '{}'
                 attribute_list = ATTRIBUTE_LABELS[self.task_name]
                 for attribute in attribute_list:
                     for label in self.labels:
-                        self.instructions[label] = self.instructions[label].format(attribute)
+                        if type(self.instructions[label]) == type(['list']):
+                            rand_prompt_idx = int(np.random.randint(low=0, high=len(self.instructions[label]), size=1)[0])
+                            self.instructions[label] = self.instructions[label][rand_prompt_idx].format(attribute)
+                            print(f"{self.instructions[label]=}")
+                            print(f"{type(self.instructions[label])=}")
+                        elif type(self.instructions[label]) == type('string'):
+                            self.instructions[label] = self.instructions[label].format(attribute)
                     for label in self.labels:
                         outputs = self._generate_dataset_entries(input_texts_or_ids, label=label,
                                                                 num_samples=num_entries_per_input,
                                                                 generate_with_inputs=generate_with_inputs)
 
                         to_add += outputs
-                self.instructions = instruction_backup # restore the original instruction with '{}'
             else:
+                for label in self.labels:
+                    if type(self.instructions[label]) == type(['list']):
+                        rand_prompt_idx = int(np.random.randint(low=0, high=len(self.instructions[label]), size=1)[0])
+                        self.instructions[label] = self.instructions[label][rand_prompt_idx]
+                        print(f"<cls_generator.py> {self.instructions[label]=}")
+                        print(f"<cls_generator.py> {type(self.instructions[label])=}")
                 for label in self.labels:
                     outputs = self._generate_dataset_entries(input_texts_or_ids, label=label,
                                                             num_samples=num_entries_per_input,
                                                             generate_with_inputs=generate_with_inputs)
 
                     to_add += outputs
+            self.instructions = copy.deepcopy(instruction_backup) # restore the original instruction with '{}'
 
             to_add = postprocess_dataset(to_add, generate_with_inputs, task_name)
 

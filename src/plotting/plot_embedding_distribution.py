@@ -1167,5 +1167,5 @@ if __name__ == "__main__":
     print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
     
 
-    # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
+    plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
 
