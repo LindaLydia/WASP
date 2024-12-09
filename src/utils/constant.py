@@ -69,6 +69,48 @@ FEW_SHOT_SAMPLE_TEMPLATE = {
     'worksheet': '工单数据是：',
 }
 
+FEW_SHOT_SAMPLE_TEMPLATE_GOOD = {
+    'imdb': 'A good movie review is: ',
+    'yelp': 'A good restaurant review is: ',
+    'yelpCategory': 'A good business review is: ',
+    'yelpRating': 'A good business review is: ',
+    'openreviewCategory': 'A good paper review is: ',
+    'openreviewRating': 'A good paper review is: ',
+    # 'mnli': {
+    #     "entailment": "The sentence pair is: {} In other words, {}",
+    #     "neutral": "The sentence pair is: {} Furthermore, {}",
+    #     "contradiction": "The sentence pair is: There is a rumor that {}. However, the truth is: {}",
+    # },
+    'mnli': 'A good sentence pair is: ',
+    'mnliMisM': 'A good sentence pair is: ',
+    'qnli': 'A good Information-Question pair is: ',
+    'agnews': 'A good news article is: ',
+    'markednews': 'A good news article is: ',
+    'squad': 'A good Context-Question pair is: ',
+    'worksheet': '一个好的工单数据是：',
+}
+
+FEW_SHOT_SAMPLE_TEMPLATE_BAD = {
+    'imdb': 'A bad movie review is: ',
+    'yelp': 'A bad restaurant review is: ',
+    'yelpCategory': 'A bad business review is: ',
+    'yelpRating': 'A bad business review is: ',
+    'openreviewCategory': 'A bad paper review is: ',
+    'openreviewRating': 'A bad paper review is: ',
+    # 'mnli': {
+    #     "entailment": "The sentence pair is: {} In other words, {}",
+    #     "neutral": "The sentence pair is: {} Furthermore, {}",
+    #     "contradiction": "The sentence pair is: There is a rumor that {}. However, the truth is: {}",
+    # },
+    'mnli': 'A bad sentence pair is: ',
+    'mnliMisM': 'A bad sentence pair is: ',
+    'qnli': 'A bad Information-Question pair is: ',
+    'agnews': 'A bad news article is: ',
+    'markednews': 'A bad news article is: ',
+    'squad': 'A bad Context-Question pair is: ',
+    'worksheet': '一个不好的工单数据是：',
+}
+
 FEW_SHOT_PROMPT = {
     'imdb': {
         "task_name": "imdb",
@@ -824,6 +866,23 @@ ATTRIBUTE_LABELS = { # all attribute labels for a specific task
         "Social Aspects of Machine Learning (eg, AI safety, fairness, privacy, interpretability, human-AI interaction, ethics)",
         "Theory (eg, control theory, learning theory, algorithmic game theory)",
         "Unsupervised and Self-supervised learning"], # len(unique_label1)=12
+}
+
+FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD = {
+    'imdb': {
+        "task_name": "imdb",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above examples of bad and good movie reviews in positive sentiment, analyze the differences between the bad and good reviews. Generate a new positive movie review that is diverse in expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining the positive sentiment and clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new positive movie review is: \"",
+                "counter_labels": ["1"]
+            },
+            "1": {
+                "instruction": "{}\nBased on the above examples of bad and good movie reviews in negative sentiment, analyze the differences between the bad and good reviews. Generate a new negative movie review that is diverse in expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining the positive sentiment and clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new negatvie movie review is: \"",
+                "counter_labels": ["0"]
+            }
+        }
+    },
 }
 
 FEW_SHOT_PROMPT_PER_CLASS = {
