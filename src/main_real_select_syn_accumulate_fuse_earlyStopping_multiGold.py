@@ -2440,10 +2440,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"training STM with synthetic data mixing with gold data from data party #{i_party}")
             diverged = True # diverged==True means loss==nan, which means the training failed
             while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), 1, args.inner_obj, test_loader)
                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                 if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta[i_party].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
             # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
             # print(f"[debug] {args.use_dev_outer}")
             if args.stochastic_outer and args.subset_outer:
@@ -2713,6 +2713,8 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, new_small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
                 else:
                     prompt_samples_idx, nearest_sample_voting, model_voting_score = find_nearest_syn_samples_multi_data_party_byClass(args, small_train_data, gold_loader, args.gen_few_shot_k, sample_limitation=selected_indices)
+            if not 'Contrast' in args.gen_by_prompt_contrast:
+                prompt_samples_idx = prompt_samples_idx['nearest']
             print(f'here0-6(1), {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
             print(f"{prompt_samples_idx=}") # prompt_samples_idx = [(1,0),(1,1),(0,2),(0,3)]
             logging.info(f"{prompt_samples_idx=}")
@@ -2965,7 +2967,8 @@ if __name__ == "__main__":
     parser.add_argument("--gen_batch_size", type=int, default=4, help="The batch size for generation (only if --input_file is not set)")
     parser.add_argument("--gen_max_length", type=int, default=40, help="The maximum output length for each generated text.")
     parser.add_argument("--gen_min_length", type=int, default=1, help="The minimum output length for each generated text.")
-    parser.add_argument("--gen_sample_select", type=str, default='Cartography', help="['CartographyOriginal', 'CartographyWithReal ,'influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography'
+    parser.add_argument("--gen_sample_select", type=str, default='Cartography', help="['CartographyOriginal', 'CartographyWithReal ,'influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography', 'Contrast'
+    # parser.add_argument("--gen_by_prompt_contrast", type=int, default=0, help="0: only good samples are used, 1: good and bad samples are all included") #,'influenceCartography'
     parser.add_argument("--sentence_transformer", type=str, default='sentence-t5-base', help="the specified sentence transformer for embedding the input sample, set to 'none' if the STM is desired") #,'influenceCartography'
     parser.add_argument("--voting_range", type=str, default='all', help="find nearest synthetic sample within all the syn samples or within the same class, ['all', 'class']") 
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")
