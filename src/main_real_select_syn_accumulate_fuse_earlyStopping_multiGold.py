@@ -2440,10 +2440,10 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"training STM with synthetic data mixing with gold data from data party #{i_party}")
             diverged = True # diverged==True means loss==nan, which means the training failed
             while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
+                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), 1, args.inner_obj, test_loader)
                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
                 if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta[i_party].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
             # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
             # print(f"[debug] {args.use_dev_outer}")
             if args.stochastic_outer and args.subset_outer:
