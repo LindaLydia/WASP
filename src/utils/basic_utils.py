@@ -181,7 +181,7 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
         total_dataset.label = [] # clear all the samples
         total_dataset.idx = [] # clear all the samples
         total_dataset.is_syn = [] # clear all the samples
-        for row in range(args.len_LLM):
+        for row in range(len(datasets)):
             # accumulate_sampels.append(accumulate_sampels[-1]+len(datasets[row].idx))
             idx_list = [_i for _i in range(len(datasets[row].idx))]
             if max_sample_count_for_each != -1 and max_sample_count_for_each < len(datasets[row].idx):
