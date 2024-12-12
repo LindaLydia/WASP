@@ -2728,10 +2728,13 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 torch.save((confidence_score, variability_score, nearest_sample_voting),f"{args.result_file_path}/iter{outer_iter}_variability_and_voting.pth")
                 assert confidence_score.shape==variability_score.shape==nearest_sample_voting.shape, f"[ERROR] should have the same shape, but now {confidence_score.shape=}, {variability_score.shape=}, {nearest_sample_voting.shape=}"
 
-            if type(prompt_samples_idx) == type({}):
+            if type(prompt_samples_idx) == type({"dictionary":"dict"}):
                 _prompt_samples_idx = []
                 for _key in prompt_samples_idx.keys():
                     _prompt_samples_idx += prompt_samples_idx[_key]
+            else:
+                assert type(prompt_samples_idx) == type(['list']), f"[ERROR] Expect {type(prompt_samples_idx)=} == list"
+                _prompt_samples_idx = prompt_samples_idx
             if args.gen_by_class == 0:
                 counts = Counter(x[0] for x in _prompt_samples_idx)
             else:
