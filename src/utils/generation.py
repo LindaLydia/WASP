@@ -1231,7 +1231,8 @@ class LLMWrapper():
         """
         super().__init__()
         self.args = args
-        self._device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
+        # self._device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
+        self._device = args.device
         self.model_name = model_name
         # print(f'[debug] model_name={model_name}')
         # if 'gpt2' in model_name:
@@ -1295,6 +1296,7 @@ class LLMWrapper():
                 torch.cuda.empty_cache()
                 self._model = None
                 self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = self._model.config.max_position_embeddings
             self._tokenizer = GPT2Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
             if use_cuda:
@@ -1315,6 +1317,7 @@ class LLMWrapper():
                 self._model = None
                 self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
             print(self._model.config)
+            print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = self._model.config.max_position_embeddings
             if not 'llama-3' in model_name:
                 self._tokenizer = LlamaTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
@@ -1332,6 +1335,7 @@ class LLMWrapper():
                 bnb_4bit_compute_dtype=torch.bfloat16
             )
             self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
+            print(f"{self._model.hf_device_map=}")
             model_device_map = copy.deepcopy(self._model.hf_device_map)
             model_layer_name = list(model_device_map.keys())
             if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
@@ -1354,6 +1358,7 @@ class LLMWrapper():
                 self._model = None
                 self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
             print(self._model.config)
+            print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = self._model.config.max_position_embeddings
             self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
         # elif 'openchat' in model_name:
@@ -1372,6 +1377,7 @@ class LLMWrapper():
                 torch.cuda.empty_cache()
                 self._model = None
                 self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, device_map=model_device_map, torch_dtype=torch.float16)
+            print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = 1024
             self._tokenizer = ChatGLMTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
             if use_cuda:
@@ -1387,6 +1393,7 @@ class LLMWrapper():
                 torch.cuda.empty_cache()
                 self._model = None
                 self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = 1024
             self._tokenizer = GLMGPT2Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
             if use_cuda:
@@ -1406,6 +1413,7 @@ class LLMWrapper():
                 torch.cuda.empty_cache()
                 self._model = None
                 self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            print(f"{self._model.hf_device_map=}")
 
         print(f"[debug] debiasing model on device {self._model.device}")
         print(f"[debug] debiasing model config {self._model.config}")
@@ -1455,6 +1463,9 @@ class LLMWrapper():
 
         # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, before model.generate, here2")
         # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids']=}, {inputs['attention_mask']=}, {inputs['input_ids'].shape=}, {inputs['attention_mask'].shape=}")
+        print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids']=}, {inputs['attention_mask']=}")
+        print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids'].shape=}, {inputs['attention_mask'].shape=}")
+        print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids'].device=}, {inputs['attention_mask'].device=}")
         output_ids = self._model.generate(**inputs, min_length=min_length, max_length=max_length,
                                           num_return_sequences=num_samples, **kwargs)
         # print(f"in generation.py, (1) {output_ids=}")
@@ -1477,6 +1488,7 @@ class SimpleLLM():
         self.args = args
         self.model_name = model_name
         self._device = "cuda" if torch.cuda.is_available() and use_cuda else "cpu"
+        self._device = args.device
         if 'gpt2' in model_name:
             self._model = GPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
             self.max_position_embeddings = self._model.config.max_position_embeddings
