@@ -2797,6 +2797,63 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             #     torch.cuda.empty_cache()
             #     print(f'here0-7, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
+
+            # ########## start of preparing few-shot prompt ##########
+            # prepare few-shot prompt
+            if args.gen_by_class == 0: # all labels share the same prompt
+                prompt = copy.deepcopy(FEW_SHOT_PROMPT[args.task_name])
+                few_shot_samples = ''
+                for i_sample in range(args.gen_few_shot_k):
+                    print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
+                    # print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
+                    print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
+                    logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
+                    logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
+                    few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}\n'
+                for key in prompt["labels"].keys():
+                    prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
+            else: # each label has its own prompt
+                if type(prompt_samples_idx) == type({'dictionary':1}):
+                    prompt = copy.deepcopy(FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD[args.task_name])
+                    for i_key, key in enumerate(prompt["labels"].keys()):
+                        prompt_format_template = copy.deepcopy(prompt["labels"][key]["instruction"])
+                        prompt["labels"][key]["instruction"] = []
+                        for _j in range(6):
+                            few_shot_samples = ''
+                            bad_sample_index = random.sample(range(args.gen_few_shot_k), args.gen_few_shot_k//2)
+                            good_sample_index = random.sample(range(args.gen_few_shot_k), args.gen_few_shot_k-args.gen_few_shot_k//2)
+                            for i_sample in bad_sample_index:
+                                print(f"{key=}, {i_key=} {i_sample=}")
+                                print(f"{i_sample=}, {prompt_samples_idx['furthest'][i_key][i_sample][0]=}, {prompt_samples_idx['furthest'][i_key][i_sample][1]=}")
+                                print(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
+                                logging.info(f"{i_sample=}, {prompt_samples_idx['furthest'][i_key][i_sample][0]=}, {prompt_samples_idx['furthest'][i_key][i_sample][1]=}")
+                                logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
+                                few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_BAD[args.task_name]}{small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}\n"
+                            for i_sample in good_sample_index:
+                                print(f"{key=}, {i_key=} {i_sample=}")
+                                print(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
+                                print(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
+                                logging.info(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
+                                logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
+                                few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_GOOD[args.task_name]}{small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}\n"
+                            print(f"{type(prompt)=}, {type(prompt_format_template)=}")
+                            print(f"{prompt=}, {prompt_format_template=}")
+                            print(f"{prompt_format_template.format(few_shot_samples, '{}')=}")
+                            prompt["labels"][key]["instruction"].append(prompt_format_template.format(few_shot_samples, '{}'))
+                else: # should be a list containing all the in-context samples
+                    prompt = copy.deepcopy(FEW_SHOT_PROMPT_PER_CLASS[args.task_name])
+                    for i_key, key in enumerate(prompt["labels"].keys()):
+                        few_shot_samples = ''
+                        for i_sample in range(args.gen_few_shot_k):
+                            print(f"{key=}, {i_key=} {i_sample=}")
+                            print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
+                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
+            # ########## end of preparing few-shot prompt ##########
+
             for im in range(args.len_LLM):
                 gen_task_file_dir = f'{args.working_prompt_dir[im]}{args.i_step}/'
                 if not os.path.exists(gen_task_file_dir):
@@ -2806,63 +2863,6 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 args.gen_model_name = args.llms[im] # "The pretrained model to use for dataset generation. Currently, only variants of GPT2 are supported."
                 args.gen_num_entries_per_input = args.num_use_samples_each_step_extend[im]
 
-                # prepare few-shot prompt
-                if args.gen_by_class == 0: # all labels share the same prompt
-                    few_shot_samples = ''
-                    for i_sample in range(args.gen_few_shot_k):
-                        if im == 0:
-                            print(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                            # print(f"prompt sample = {args.samples_text[prompt_samples_idx[i_sample][0]][prompt_samples_idx[i_sample][1]]}")
-                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
-                            logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
-                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
-                        few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}\n'
-                    prompt = FEW_SHOT_PROMPT[args.task_name]
-                    for key in prompt["labels"].keys():
-                        prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
-                else: # each label has its own prompt
-                    if type(prompt_samples_idx) == type({'dictionary':1}):
-                        prompt = FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD[args.task_name]
-                        for i_key, key in enumerate(prompt["labels"].keys()):
-                            prompt_format_template = copy.deepcopy(prompt["labels"][key]["instruction"])
-                            prompt["labels"][key]["instruction"] = []
-                            for _j in range(6):
-                                few_shot_samples = ''
-                                bad_sample_index = random.sample(range(args.gen_few_shot_k), args.gen_few_shot_k//2)
-                                good_sample_index = random.sample(range(args.gen_few_shot_k), args.gen_few_shot_k-args.gen_few_shot_k//2)
-                                for i_sample in bad_sample_index:
-                                    if im == 0:
-                                        print(f"{key=}, {i_key=} {i_sample=}")
-                                        print(f"{i_sample=}, {prompt_samples_idx['furthest'][i_key][i_sample][0]=}, {prompt_samples_idx['furthest'][i_key][i_sample][1]=}")
-                                        print(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
-                                        logging.info(f"{i_sample=}, {prompt_samples_idx['furthest'][i_key][i_sample][0]=}, {prompt_samples_idx['furthest'][i_key][i_sample][1]=}")
-                                        logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
-                                    few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_BAD[args.task_name]}{small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}\n"
-                                for i_sample in good_sample_index:
-                                    if im == 0:
-                                        print(f"{key=}, {i_key=} {i_sample=}")
-                                        print(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
-                                        print(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
-                                        logging.info(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
-                                        logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
-                                    few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_GOOD[args.task_name]}{small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}\n"
-                                print(f"{type(prompt)=}, {type(prompt_format_template)=}")
-                                print(f"{prompt=}, {prompt_format_template=}")
-                                print(f"{prompt_format_template.format(few_shot_samples, '{}')=}")
-                                prompt["labels"][key]["instruction"].append(prompt_format_template.format(few_shot_samples, '{}'))
-                    else: # should be a list containing all the in-context samples
-                        prompt = FEW_SHOT_PROMPT_PER_CLASS[args.task_name]
-                        for i_key, key in enumerate(prompt["labels"].keys()):
-                            few_shot_samples = ''
-                            for i_sample in range(args.gen_few_shot_k):
-                                if im == 0:
-                                    print(f"{key=}, {i_key=} {i_sample=}")
-                                    print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
-                                    print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
-                                    logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
-                                    logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
-                                few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
-                            prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
                 with open(args.gen_task_file, "w") as task_file:
                     json.dump(prompt, task_file)
                 # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")
@@ -2877,7 +2877,6 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 torch.cuda.empty_cache()
             # do not perform things now, wait for gen to target number of samples
             return
-
 
     print("++++++++++++++++finished solving++++++++++++++++++++")
     return best_theta

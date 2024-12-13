@@ -1286,38 +1286,38 @@ class LLMWrapper():
         #     self._model.to(device)
         print(f'[debug] model_name={model_name}')
         if 'gpt2' in model_name:
-            self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map='auto', torch_dtype=torch.float16)
-            model_device_map = copy.deepcopy(self._model.hf_device_map)
-            model_layer_name = list(model_device_map.keys())
-            if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
-                model_device_map[model_layer_name[0]] = self.args.gpu
-                model_device_map[model_layer_name[-1]] = self.args.gpu
-                del self._model
-                torch.cuda.empty_cache()
-                self._model = None
-                self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
-            print(f"{self._model.hf_device_map=}")
+            self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], torch_dtype=torch.float16).to(self.args.device)
+            # self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map='auto', torch_dtype=torch.float16)
+            # model_device_map = copy.deepcopy(self._model.hf_device_map)
+            # model_layer_name = list(model_device_map.keys())
+            # # model_reload = False
+            # if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
+            #     model_device_map[model_layer_name[0]] = self.args.gpu
+            #     model_device_map[model_layer_name[-1]] = self.args.gpu
+            #     del self._model
+            #     torch.cuda.empty_cache()
+            #     self._model = None
+            #     self._model = SelfDebiasingGPT2LMHeadModel.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            # print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = self._model.config.max_position_embeddings
             self._tokenizer = GPT2Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
             if use_cuda:
                 self._model.parallelize()
             # self._model.to('cuda:1')
         elif 'llama' in model_name or 'vicuna' in model_name:
-            if not 'llama-3' in model_name:
-                self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
-            else:
-                self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16) #
-            model_device_map = copy.deepcopy(self._model.hf_device_map)
-            model_layer_name = list(model_device_map.keys())
-            if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
-                model_device_map[model_layer_name[0]] = self.args.gpu
-                model_device_map[model_layer_name[-1]] = self.args.gpu
-                del self._model
-                torch.cuda.empty_cache()
-                self._model = None
-                self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], torch_dtype=torch.float16).to(self.args.device) #
+            # self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16) #
+            # model_device_map = copy.deepcopy(self._model.hf_device_map)
+            # model_layer_name = list(model_device_map.keys())
+            # if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
+            #     model_device_map[model_layer_name[0]] = self.args.gpu
+            #     model_device_map[model_layer_name[-1]] = self.args.gpu
+            #     del self._model
+            #     torch.cuda.empty_cache()
+            #     self._model = None
+            #     self._model = SelfDebiasingLlamaForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            # print(f"{self._model.hf_device_map=}")
             print(self._model.config)
-            print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = self._model.config.max_position_embeddings
             if not 'llama-3' in model_name:
                 self._tokenizer = LlamaTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
@@ -1328,37 +1328,39 @@ class LLMWrapper():
             print("load 8-bit model=True")
             self.max_position_embeddings = 1024
             # quantization_config = BitsAndBytesConfig(load_in_8bit_fp32_cpu_offload=True)
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16
-            )
-            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
-            print(f"{self._model.hf_device_map=}")
-            model_device_map = copy.deepcopy(self._model.hf_device_map)
-            model_layer_name = list(model_device_map.keys())
-            if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
-                model_device_map[model_layer_name[0]] = self.args.gpu
-                model_device_map[model_layer_name[-1]] = self.args.gpu
-                del self._model
-                torch.cuda.empty_cache()
-                self._model = None
-                self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, quantization_config=quantization_config)
+            # quantization_config = BitsAndBytesConfig(
+            #     load_in_4bit=True,
+            #     bnb_4bit_use_double_quant=True,
+            #     bnb_4bit_quant_type="nf4",
+            #     bnb_4bit_compute_dtype=torch.bfloat16
+            # )
+            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], torch_dtype=torch.float16).to(self.args.device) # , llm_int8_enable_fp32_cpu_offload=True
+            # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
+            # model_device_map = copy.deepcopy(self._model.hf_device_map)
+            # model_layer_name = list(model_device_map.keys())
+            # if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
+            #     model_device_map[model_layer_name[0]] = self.args.gpu
+            #     model_device_map[model_layer_name[-1]] = self.args.gpu
+            #     del self._model
+            #     torch.cuda.empty_cache()
+            #     self._model = None
+            #     self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, quantization_config=quantization_config)
+            # print(f"{self._model.hf_device_map=}")
             self._tokenizer = T5Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings, truncation=True, truncation_side="left")
         elif 'opt' in model_name:
-            self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
-            model_device_map = copy.deepcopy(self._model.hf_device_map)
-            model_layer_name = list(model_device_map.keys())
-            if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
-                model_device_map[model_layer_name[0]] = self.args.gpu
-                model_device_map[model_layer_name[-1]] = self.args.gpu
-                del self._model
-                torch.cuda.empty_cache()
-                self._model = None
-                self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], torch_dtype=torch.float16).to(self.args.device)
+            # self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
+            # model_device_map = copy.deepcopy(self._model.hf_device_map)
+            # model_layer_name = list(model_device_map.keys())
+            # if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
+            #     model_device_map[model_layer_name[0]] = self.args.gpu
+            #     model_device_map[model_layer_name[-1]] = self.args.gpu
+            #     del self._model
+            #     torch.cuda.empty_cache()
+            #     self._model = None
+            #     self._model = SelfDebiasingOPTForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            # print(f"{self._model.hf_device_map=}")
             print(self._model.config)
-            print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = self._model.config.max_position_embeddings
             self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
         # elif 'openchat' in model_name:
@@ -1367,33 +1369,35 @@ class LLMWrapper():
         #     self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
         #     print(type(self._model))
         elif 'chatglm' in model_name:
-            self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, device_map='auto', torch_dtype=torch.float16)
-            model_device_map = copy.deepcopy(self._model.hf_device_map)
-            model_layer_name = list(model_device_map.keys())
-            if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
-                model_device_map[model_layer_name[0]] = self.args.gpu
-                model_device_map[model_layer_name[-1]] = self.args.gpu
-                del self._model
-                torch.cuda.empty_cache()
-                self._model = None
-                self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, device_map=model_device_map, torch_dtype=torch.float16)
-            print(f"{self._model.hf_device_map=}")
+            self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, torch_dtype=torch.float16).to(self.args.device)
+            # self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, device_map='auto', torch_dtype=torch.float16)
+            # model_device_map = copy.deepcopy(self._model.hf_device_map)
+            # model_layer_name = list(model_device_map.keys())
+            # if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
+            #     model_device_map[model_layer_name[0]] = self.args.gpu
+            #     model_device_map[model_layer_name[-1]] = self.args.gpu
+            #     del self._model
+            #     torch.cuda.empty_cache()
+            #     self._model = None
+            #     self._model = SelfDebiasingChatGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, device_map=model_device_map, torch_dtype=torch.float16)
+            # print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = 1024
             self._tokenizer = ChatGLMTokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
             if use_cuda:
                 self._model.cuda()
         elif 'glm' in model_name:
-            self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, torch_dtype=torch.float16)
-            model_device_map = copy.deepcopy(self._model.hf_device_map)
-            model_layer_name = list(model_device_map.keys())
-            if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
-                model_device_map[model_layer_name[0]] = self.args.gpu
-                model_device_map[model_layer_name[-1]] = self.args.gpu
-                del self._model
-                torch.cuda.empty_cache()
-                self._model = None
-                self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
-            print(f"{self._model.hf_device_map=}")
+            self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], trust_remote_code=True, torch_dtype=torch.float16).to(self.args.device)
+            # self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], device_map="auto", trust_remote_code=True, torch_dtype=torch.float16)
+            # model_device_map = copy.deepcopy(self._model.hf_device_map)
+            # model_layer_name = list(model_device_map.keys())
+            # if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
+            #     model_device_map[model_layer_name[0]] = self.args.gpu
+            #     model_device_map[model_layer_name[-1]] = self.args.gpu
+            #     del self._model
+            #     torch.cuda.empty_cache()
+            #     self._model = None
+            #     self._model = SelfDebiasingGLMModel.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            # print(f"{self._model.hf_device_map=}")
             self.max_position_embeddings = 1024
             self._tokenizer = GLMGPT2Tokenizer.from_pretrained(MODEL_PATH[model_name], max_length=self.max_position_embeddings-args.gen_max_length, truncation=True, truncation_side="left")
             if use_cuda:
@@ -1403,17 +1407,18 @@ class LLMWrapper():
             self._tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH[model_name], truncation=True, truncation_side="left")
             print(self._tokenizer)
             print('----------------')
-            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
-            model_device_map = copy.deepcopy(self._model.hf_device_map)
-            model_layer_name = list(model_device_map.keys())
-            if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
-                model_device_map[model_layer_name[0]] = self.args.gpu
-                model_device_map[model_layer_name[-1]] = self.args.gpu
-                del self._model
-                torch.cuda.empty_cache()
-                self._model = None
-                self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
-            print(f"{self._model.hf_device_map=}")
+            self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], torch_dtype=torch.float16).to(self.args.device)
+            # self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", torch_dtype=torch.float16)
+            # model_device_map = copy.deepcopy(self._model.hf_device_map)
+            # model_layer_name = list(model_device_map.keys())
+            # if model_device_map[model_layer_name[0]] != self.args.gpu or model_device_map[model_layer_name[-1]] != self.args.gpu:
+            #     model_device_map[model_layer_name[0]] = self.args.gpu
+            #     model_device_map[model_layer_name[-1]] = self.args.gpu
+            #     del self._model
+            #     torch.cuda.empty_cache()
+            #     self._model = None
+            #     self._model = AutoModelForCausalLM.from_pretrained(MODEL_PATH[model_name], device_map=model_device_map, torch_dtype=torch.float16)
+            # print(f"{self._model.hf_device_map=}")
 
         print(f"[debug] debiasing model on device {self._model.device}")
         print(f"[debug] debiasing model config {self._model.config}")
