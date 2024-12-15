@@ -1464,7 +1464,7 @@ class LLMWrapper():
         if max_length is not None:
             # if 'max_position_embeddings' in self._model.config:
             #    max_length = min(self._model.config.max_position_embeddings, max_length + seq_len)
-            max_length = min(2048, max_length + seq_len)
+            max_length = min(self.max_position_embeddings, max_length + seq_len)
 
         # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, before model.generate, here2")
         # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids']=}, {inputs['attention_mask']=}, {inputs['input_ids'].shape=}, {inputs['attention_mask'].shape=}")

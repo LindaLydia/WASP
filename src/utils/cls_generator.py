@@ -228,7 +228,7 @@ class DataGenerator:
             debiasing_texts=counter_instructions,
             num_samples=num_samples,
             decay_constant=self.decay_constant,
-            min_length=self.max_length,
+            min_length=self.min_length,
             max_length=self.max_length,
             label=label,
             task_name = self.task_name,

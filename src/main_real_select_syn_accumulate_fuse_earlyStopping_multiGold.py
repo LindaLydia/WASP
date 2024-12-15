@@ -2813,7 +2813,8 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 for key in prompt["labels"].keys():
                     prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
             else: # each label has its own prompt
-                if type(prompt_samples_idx) == type({'dictionary':1}):
+                if 'Contrast' in args.gen_sample_select:
+                    assert type(prompt_samples_idx) == type({'dictionary':1}), f"[ERROR] Expect {type(prompt_samples_idx)=} == type(dict)"
                     prompt = copy.deepcopy(FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD[args.task_name])
                     for i_key, key in enumerate(prompt["labels"].keys()):
                         prompt_format_template = copy.deepcopy(prompt["labels"][key]["instruction"])
