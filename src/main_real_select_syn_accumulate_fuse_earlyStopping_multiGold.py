@@ -3214,7 +3214,7 @@ if __name__ == "__main__":
             args.working_prompt_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/prompt/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             for sample_file_name in ['train_noflip', 'train']: # save 2 files, one for the original generated samples (train_noflip), another for samples after flip
                 prepare_sample_file(args.init_sample_path[im], f'{args.working_sample_dir[im]}{sample_file_name}.jsonl', args.num_use_samples_init[im])
-        
+
         args.num_use_samples_init = torch.tensor(args.num_use_samples_init,dtype=torch.long).to(args.device)
         args.num_use_samples_each_step_extend = torch.tensor(args.num_use_samples_each_step_extend,dtype=torch.long).to(args.device)
         args.num_use_total_samples_each_step_extend = torch.tensor(args.num_use_total_samples_each_step_extend,dtype=torch.long).to(args.device)
@@ -3234,6 +3234,12 @@ if __name__ == "__main__":
                     args.gold_iter = gold_iter
                     args.gold_data = gold_data
                     args.test_iter = test_iter
+                    args.working_gold_sample_dir = [f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/gold/party#{i_data_party}/' for i_data_party in range(args.gold_party_num)]
+                    for i_data_party in range(args.gold_party_num):
+                        if not os.path.exists(args.working_gold_sample_dir[i_data_party]):
+                            os.makedirs(args.working_gold_sample_dir[i_data_party])
+                        for sample_file_name in ['train_noflip', 'train']:
+                            save_gold_sample_file(f'{args.working_gold_sample_dir[i_data_party]}{sample_file_name}.jsonl', args.gold_data[i_data_party])
             else: # lstm
                 train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.sample_each_llm, args.num_use_samples_outer,args.shuffle_train)
                 args.num_classes = len(LABEL.vocab.stoi)

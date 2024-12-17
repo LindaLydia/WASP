@@ -229,6 +229,22 @@ def split_gold_data_for_parties(args, total_data):
     return data_list
 
 
+def save_gold_sample_file(to_path, data):
+    counter = 0
+    with jsonlines.open(to_path, 'w') as writer:
+        for _i_data in range(len(data)):
+            json_obj = {
+                "C": data.text[_i_data], 
+                "X": None, 
+                "Y": int(data.label[_i_data].item()), 
+                "idx": counter
+            }
+            counter += 1
+            # Write the modified JSON object to the output file
+            writer.write(json_obj)
+    print(f"Finish saving gold data with {counter} samples")
+
+
 def load_iters(batch_size=32, device="cpu", data_path='data', vectors=None, limit=100000):
     TEXT = data.Field(lower=True, batch_first=True, include_lengths=True)
     LABEL = data.LabelField(batch_first=True)
