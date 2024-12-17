@@ -22,10 +22,11 @@ from sklearn.feature_selection import mutual_info_classif, mutual_info_regressio
 from scipy.stats import entropy, gaussian_kde
 from scipy.spatial.distance import cdist
 
-from plot_utils import *
-
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
+
+from plot_utils import *
+# from src.utils.basic_utils import merge_all_dataset
 
 EPSILON = 1e-30
 
@@ -317,10 +318,11 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
             tokenizer=args.tokenizer,
             max_length=512,
             # device=args.device,
-            max_sample=args.num_use_samples_inner[i]
+            max_sample=-1,
         )
         # train_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i])]).long().to(args.device)
-        train_data.idx = torch.tensor([_i for _i in range(args.num_use_samples_inner[i])]).long()
+        train_data.idx = torch.tensor([_i for _i in range(len(train_data))]).long()
+        print(f"loading {len(train_data)} samples ...")
         
         # indices = list(range(args.num_use_samples_inner[i]))
         # random.shuffle(indices)
@@ -358,19 +360,41 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         # print(f"[debug] sample_text has length {len(args.samples_text[i])}")
 
     print("test dataset")
-    test_data = TokenizedDataset(
-        file_path=(gold_data_path+'test.jsonl'),
-        # file_path=(gold_data_path+'test_small.jsonl'),
-        text_column='text',
-        label_column='label',
-        index_column='idx',
-        tokenizer=args.tokenizer,
-        device=args.device,
-        max_length=512,
-        max_sample=args.gold_data_num, # use all that is provided in the dataset file
-        # max_sample=-1 # use all that is provided in the dataset file
-        small_dataset_shuffle=True,
-    )
+    if os.path.exists(f'{SYN_DATA_PATH}gold/'):
+        test_data_list = []
+        for root, dirs, files in os.walk(f'{SYN_DATA_PATH}gold/'):
+            for file in files:
+                print(f"{file=}")
+                if file.endswith('train.jsonl'):
+                    gold_file_path = os.path.join(root, file)
+                    _test_data = TokenizedDataset(
+                        file_path=gold_file_path,
+                        text_column='C',
+                        label_column='Y',
+                        index_column='idx',
+                        tokenizer=args.tokenizer,
+                        device=args.device,
+                        max_length=512,
+                        max_sample=-1, # use all that is provided in the dataset file
+                        # max_sample=-1 # use all that is provided in the dataset file
+                        small_dataset_shuffle=True,
+                    )
+                    test_data_list.append(_test_data)
+        test_data = merge_all_dataset(args, test_data_list, max_sample_count_for_total=-1)
+    else:
+        test_data = TokenizedDataset(
+            file_path=(gold_data_path+'test.jsonl'),
+            # file_path=(gold_data_path+'test_small.jsonl'),
+            text_column='text',
+            label_column='label',
+            index_column='idx',
+            tokenizer=args.tokenizer,
+            device=args.device,
+            max_length=512,
+            max_sample=args.gold_data_num, # use all that is provided in the dataset file
+            # max_sample=-1 # use all that is provided in the dataset file
+            small_dataset_shuffle=True,
+        )
 
     if args.consider_real:
         train_data_list.append(test_data)
@@ -442,7 +466,9 @@ def plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embedding
         (0.8901960784313725, 0.4666666666666667, 0.7607843137254902),  # Pink
         (0.4980392156862745, 0.4980392156862745, 0.4980392156862745),  # Grey
         (0.7372549019607844, 0.7411764705882353, 0.13333333333333333),  # Yellow
-        (0.09019607843137255, 0.7450980392156863, 0.8117647058823529)  # Cyan
+        (0.09019607843137255, 0.7450980392156863, 0.8117647058823529),  # Cyan
+        (0.9843137254901961, 0.8666666666666667, 0.4941176470588235),  # Wheat
+        (0.4627450980392157, 0.911764705882353, 0.4823529411764706),  # Lightgreen
     ]
     markers = ['o', '^', 's', 'v', 'D', 'H', '*', '+', 'x', '1', '2', '3', '4']
 
@@ -551,14 +577,14 @@ def plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embedding
         # for ir, label in enumerate(label_unique_values):
         # temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000, :])
         # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+1000]
-        temp_embeddings_2d = embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :]
-        temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
-        class_mask = (temp_labels==0).astype(np.int64)
+        temp_embeddings_2d = embeddings_2d[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i+1], :]
+        temp_labels = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i+1]]
+        # class_mask = (temp_labels==0).astype(np.int64)
         # class_mask = np.nonzero(class_mask)[0]
         # for ic in class_mask[110:120]:
         #     print(int(ic))
-        color_list = [colors[1-int(ic)] for ic in class_mask]
-        marker_list = [markers[1-int(ic)] for ic in class_mask]
+        color_list = [colors[1-int(ic)] for ic in temp_labels]
+        marker_list = [markers[1-int(ic)] for ic in temp_labels]
         # print(type(class_mask), class_mask.shape, class_mask.dtype)
         # print(temp_embeddings_2d[class_mask, 0])
         axs[i].scatter(temp_embeddings_2d[:, 0], temp_embeddings_2d[:, 1], color=color_list, marker='o',
@@ -582,19 +608,21 @@ def plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embedding
         for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
             # for ir, label in enumerate(label_unique_values):
             if i < args.len_LLM:
-                temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :])
-                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                # temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :])
+                # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :])
+                temp_labels = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]
             else:
-                temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :])
-                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
+                temp_embeddings_2d = np.array(embeddings_2d[args.accumulate_sampels[-1][i]:, :])
+                temp_labels = labels[args.accumulate_sampels[-1][i]:]
             # temp_embeddings_2d = embeddings_2d[args.accumulate_sampels[i]:args.accumulate_sampels[i+1], :]
             # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]
-            class_mask = (temp_labels==0).astype(np.int64)
+            # class_mask = (temp_labels==0).astype(np.int64)
             # class_mask = np.nonzero(class_mask)[0]
             # for ic in class_mask[110:120]:
             #     print(int(ic))
-            color_list = [colors[1-int(ic)] for ic in class_mask]
-            marker_list = [markers[1-int(ic)] for ic in class_mask]
+            color_list = [colors[1-int(ic)] for ic in temp_labels]
+            marker_list = [markers[1-int(ic)] for ic in temp_labels]
             # print(type(class_mask), class_mask.shape, class_mask.dtype)
             # print(temp_embeddings_2d[class_mask, 0])
             axs[i].scatter(temp_embeddings_2d[:, 0], temp_embeddings_2d[:, 1], color=color_list, marker='o',
@@ -674,7 +702,7 @@ def calculate_KL(args, embeddings_2d, embeddings, labels, embeddings_label, labe
         # embeddings = np.asanyarray(embeddings_2d)
 
         total_kl, within_class_kl = {}, {}
-        for i_step in range(1,args.steps+1):
+        for i_step in range(1,args.steps+2):
             # current_step_embeddings = []
             # current_step_labels = []
             # for i in range(args.len_LLM+1):
@@ -697,23 +725,31 @@ def calculate_KL(args, embeddings_2d, embeddings, labels, embeddings_label, labe
                 # but should be the end of the list with i==args.len_LLM
                 for ir, label in enumerate(label_unique_values):
                     if i < args.len_LLM:
-                        _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        _index = (labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]][_index]
                     else:
-                        _index = (labels[args.accumulate_sampels[i]:]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        _index = (labels[args.accumulate_sampels[-1][i]:]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:][_index]
                     # print(_index, type(_index), len(_index))
                     # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
-                    embeddings_label[i][label] = _embeddings_of_this_label
-                print(embeddings_label[i])
+                    embeddings_label[i][label] = copy.deepcopy(_embeddings_of_this_label)
+                # print(embeddings_label[i])
 
             total_kl[int(i_step-1)], within_class_kl[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
-            real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
-            real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            # real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            # real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            real_embeddings = embeddings[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1], :]
+            real_labels = labels[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1]]
             for i in range(args.len_LLM):
                 # ############# total_kl calculation #############
-                temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
-                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                # temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+                # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                temp_embeddings = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :]
+                temp_labels = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]
                 print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
                 min_values = np.minimum(temp_embeddings.min(axis=0), real_embeddings.min(axis=0))
                 max_values = np.maximum(temp_embeddings.max(axis=0), real_embeddings.max(axis=0))
@@ -845,24 +881,33 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
                 # but should be the end of the list with i==args.len_LLM
                 for ir, label in enumerate(label_unique_values):
                     if i < args.len_LLM:
-                        _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        _index = (labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]][_index]
                     else:
-                        _index = (labels[args.accumulate_sampels[i]:]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        _index = (labels[args.accumulate_sampels[-1][i]:]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:][_index]
+                        print(f'{i=}, {i_step=}, {label=}, {args.accumulate_sampels[i_step-1][i]=}, {_embeddings_of_this_label.shape=}')
                     # print(_index, type(_index), len(_index))
                     # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
-                    embeddings_label[i][label] = _embeddings_of_this_label
+                    embeddings_label[i][label] = copy.deepcopy(_embeddings_of_this_label)
                 # print(embeddings_label[i])
 
             total_l2[int(i_step-1)], within_class_l2[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
             total_cos[int(i_step-1)], within_class_cos[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
-            real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
-            real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            # real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            # real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            real_embeddings = embeddings[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1], :]
+            real_labels = labels[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1]]
             for i in range(args.len_LLM):
                 # ############# total_l2 and total_cos calculation #############
-                temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
-                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                # temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+                # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                temp_embeddings = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :]
+                temp_labels = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]
                 # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
                 # print(type(temp_embeddings), type(real_embeddings))
                 l2_distances = cdist(temp_embeddings, real_embeddings, metric='euclidean')
@@ -887,7 +932,7 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
                             cos_distances = cdist(embeddings_label[i][unique_label], embeddings_label[-1][unique_label], metric='cosine')
                             within_class_l2[int(i_step-1)][i] += l2_distances.sum()/l2_distances.size
                             within_class_cos[int(i_step-1)][i] += cos_distances.sum()/cos_distances.size
-                            print(f"{l2_distances=}, {cos_distances=}, {within_class_l2[int(i_step-1)][i]=}, {within_class_cos[int(i_step-1)][i]=}")
+                            # print(f"{l2_distances=}, {cos_distances=}, {within_class_l2[int(i_step-1)][i]=}, {within_class_cos[int(i_step-1)][i]=}")
                     else:
                         within_class_l2[int(i_step-1)][i] = float('inf')
                         within_class_cos[int(i_step-1)][i] = float('inf')
@@ -899,6 +944,7 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
         else:
             print(f"[WARNING] Real samples not considered, no KL can be calculated")
         
+    # assert 1 == 0
     return total_l2, within_class_l2, total_cos, within_class_cos
 
 
@@ -917,23 +963,31 @@ def calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_la
                 # but should be the end of the list with i==args.len_LLM
                 for ir, label in enumerate(label_unique_values):
                     if i < args.len_LLM:
-                        _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        _index = (labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]][_index]
                     else:
-                        _index = (labels[args.accumulate_sampels[i]:]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        _index = (labels[args.accumulate_sampels[-1][i]:]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:][_index]
                     # print(_index, type(_index), len(_index))
                     # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
-                    embeddings_label[i][label] = _embeddings_of_this_label
+                    embeddings_label[i][label] = copy.deepcopy(_embeddings_of_this_label)
                 # print(embeddings_label[i])
 
             total_fid[int(i_step-1)], within_class_fid[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
-            real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
-            real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            # real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            # real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            real_embeddings = embeddings[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1], :]
+            real_labels = labels[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1]]
             for i in range(args.len_LLM):
                 # ############# total_fid calculation #############
-                temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
-                temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                # temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+                # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                temp_embeddings = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :]
+                temp_labels = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]
                 # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
                 # print(type(temp_embeddings), type(real_embeddings))
                 fid_value = calculate_fid(temp_embeddings, real_embeddings)
@@ -980,23 +1034,35 @@ def calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, 
                 # but should be the end of the list with i==args.len_LLM
                 for ir, label in enumerate(label_unique_values):
                     if i < args.len_LLM:
-                        _index = (labels[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        # _index = (labels[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
+                        _previous_step_obtain = args.step_sample_count[i_step-2][i] if i_step > 1 else 0
+                        _index = (labels[args.accumulate_sampels[-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-2][i]]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-2][i]][_index]
                     else:
-                        _index = (labels[args.accumulate_sampels[i]:]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        # _index = (labels[args.accumulate_sampels[i]:]==label)
+                        # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                        _index = (labels[args.accumulate_sampels[-1][i]:]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:][_index]
                     # print(_index, type(_index), len(_index))
                     # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
-                    embeddings_label[i][label] = _embeddings_of_this_label
+                    embeddings_label[i][label] = copy.deepcopy(_embeddings_of_this_label)
                 # print(embeddings_label[i])
 
             total_fid[int(i_step-1)], within_class_fid[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
-            real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
-            real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            # real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            # real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            real_embeddings = embeddings[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1], :]
+            real_labels = labels[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1]]
             for i in range(args.len_LLM):
                 # ############# total_fid calculation #############
-                temp_embeddings = embeddings[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
-                temp_labels = labels[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                # temp_embeddings = embeddings[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+                # temp_labels = labels[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+                _previous_step_obtain = args.step_sample_count[i_step-2][i] if i_step > 1 else 0
+                temp_embeddings = embeddings[args.accumulate_sampels[i_step-1][i]+_previous_step_obtain:args.accumulate_sampels[i_step-1][i+1], :]
+                temp_labels = labels[args.accumulate_sampels[i_step-1][i]+_previous_step_obtain:args.accumulate_sampels[i_step-1][i+1]]
                 # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
                 # print(type(temp_embeddings), type(real_embeddings))
                 fid_value = calculate_fid(temp_embeddings, real_embeddings)
@@ -1014,7 +1080,6 @@ def calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, 
                             break
                         else:
                             unique_label_counter += 1
-
                             fid_value = calculate_fid(embeddings_label[i][unique_label], embeddings_label[-1][unique_label])
                             within_class_fid[int(i_step-1)][i] += fid_value.sum()/fid_value.size
                             print(f"{fid_value=}, {within_class_fid[int(i_step-1)][i]=}")
@@ -1075,6 +1140,7 @@ if __name__ == "__main__":
     parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
     parser.add_argument('--num_use_samples_inner', default=[200000,200000], nargs='+', type=int)
     parser.add_argument('--syn_data_path', default=None, type=str)
+    parser.add_argument('--logging_path', default=None, type=str)
     parser.add_argument('--task_name', default="rte", type=str)
     parser.add_argument('--gpu', default=0, type=int, help='gpu device id')
     parser.add_argument('--seed', default=12345, type=int, help='random seed')
@@ -1092,13 +1158,48 @@ if __name__ == "__main__":
 
     args.len_LLM = len(args.llms)
     assert args.len_LLM == len(args.num_use_samples_inner), "Must specify the number of inner samples used for every LLM's generated data"
-    args.accumulate_sampels = [0]
-    for _i in range(args.len_LLM):
-        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.num_use_samples_inner[_i])
-    if args.consider_real:
-        args.accumulate_sampels.append(args.accumulate_sampels[-1]+args.gold_data_num)
+
+    ##########################################
+    # find each step accumulated samples
+    args.start_sample_count = [int(args.num_use_samples_inner[im]/(args.steps+1)) for im in range(args.len_LLM)]
+    SAMPLE_COUNT = [[]] * (args.steps+1)
+    with open(args.logging_path, 'r') as file:
+        step_counter = -1
+        for line in file:
+            line = line.strip()
+            test_acc_result = {"max":{}, "max_epoch":{}, "first":{}, "trajectory":{}, "mean":{}}
+            if 'use [' in line and '] train data...' in line:
+                print(f'[debug] {line=}')
+                start_idx = line.rfind('[')
+                end_idx = line.rfind(']')
+                str_of_list = line[start_idx+1:end_idx]
+                print(f'[debug] {str_of_list=}')
+                list_of_str = str_of_list.replace(' ', '').split(',')
+                step_sample = [int(_i) for _i in list_of_str]
+                _starting = True
+                for im in range(args.len_LLM):
+                    if step_sample[im] != args.start_sample_count[im]:
+                        step_counter += 1
+                        _starting = False
+                        break
+                if _starting:
+                    step_counter = -1
+                SAMPLE_COUNT[step_counter+1] = step_sample
+                print(f'[debug] {SAMPLE_COUNT[step_counter+1]=}')
+    args.start_sample_count = torch.tensor(args.start_sample_count, dtype=torch.long).to(args.device)
+    args.step_sample_count = torch.tensor(SAMPLE_COUNT, dtype=torch.long).to(args.device)
+    print(f'[INFO] {args.step_sample_count=}')
+    args.accumulate_sampels = []
+    for i_step in range(args.steps+1):
+        args.accumulate_sampels.append([0])
+        for _i in range(args.len_LLM):
+            args.accumulate_sampels[i_step].append(args.accumulate_sampels[i_step][-1]+args.step_sample_count[i_step][_i])
+        if args.consider_real:
+            args.accumulate_sampels[i_step].append(args.accumulate_sampels[i_step][-1]+args.gold_data_num)
     args.accumulate_sampels = torch.tensor(args.accumulate_sampels, dtype=torch.long).to(args.device)
-    print(f"{args.accumulate_sampels=}")
+    print(f"[INFO] {args.accumulate_sampels=}")
+    ##########################################
+
 
     args.model_name_sample = f'{args.task_name}___{args.llms[0]}_{args.num_use_samples_inner[0]}'
     for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
@@ -1111,9 +1212,9 @@ if __name__ == "__main__":
 
     save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
 
-    # ############## calculate and save tsne ##############
-    # calculate_and_save_tsne(args)
-    # ############## calculate and save tsne ##############
+    ############## calculate and save tsne ##############
+    calculate_and_save_tsne(args)
+    ############## calculate and save tsne ##############
 
     # assert 1 == 0
 
@@ -1138,11 +1239,15 @@ if __name__ == "__main__":
         # but should be the end of the list with i==args.len_LLM
         for ir, label in enumerate(label_unique_values):
             if i < args.len_LLM:
-                _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]==label)
-                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]][_index]
+                # _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]]==label)
+                # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i+1]][_index]
+                _index = (labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i+1]]==label)
+                _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i+1]][_index]
             else:
-                _index = (labels[args.accumulate_sampels[i]:]==label)
-                _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                # _index = (labels[args.accumulate_sampels[i]:]==label)
+                # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
+                _index = (labels[args.accumulate_sampels[-1][i]:]==label)
+                _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]:][_index]
             # print(_index, type(_index), len(_index))
             # print(f"{ir=}, {label=}", _embeddings_of_this_label, type(_embeddings_of_this_label), len(_embeddings_of_this_label))
             embeddings_label[i][label].append(_embeddings_of_this_label)

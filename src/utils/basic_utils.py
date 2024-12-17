@@ -30,8 +30,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from bilevel_tools.meta import MetaSGD
-from bilevel_tools.tbtools import AverageMeter
+# from bilevel_tools.meta import MetaSGD
+# from bilevel_tools.tbtools import AverageMeter
 import torch.nn.functional as F
 
 try:
@@ -150,7 +150,7 @@ def prepare_sample_file(from_path, to_path, sample_count):
 
 def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
     if max_sample_count_for_total != -1:
-        max_sample_count_for_each = max_sample_count_for_total // args.len_LLM
+        max_sample_count_for_each = max_sample_count_for_total // len(datasets)
     else:
         max_sample_count_for_each = -1
     # ############### prepare total_data ###############
