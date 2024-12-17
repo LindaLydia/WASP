@@ -1524,84 +1524,84 @@ def train_to_converge_with_selection_kd_fused(args, model, train_data, theta, qu
     print(f'here2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
 
     
-    # (1) train only on good sample with one-hot label
-    if final_test:
-        if 'Reweight' in args.fuse_dataset_weight:
-            print_info = ["weight-adjust-for-selection-kd-fused-(good-one-hot)", "fused_adjust_iter", "good_train_loss_selction_ft", "good_train_acc_selction_ft", "good_test_acc_selction_ft", "good_test_loss_selction_ft"]
-            high_quality_one_hot_theta, high_quality_one_hot_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=None)
-        else:
-            diverged = False
-            selected_train_dataset = []
-            _id = 0
-            if args.small_model_name.upper() == 'LSTM':
-                for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
-                    selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
-                    selected_train_dataset[_id].idx = _id
-                    _id += 1
-                selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
-                theta = torch.stack(_saved_theta)[high_quality_sample_rows, high_quality_sample_columns]
-                train_iter, = BucketIterator.splits(
-                    (selected_train_data,),
-                    batch_sizes=(args.train_batch_size,),
-                    device=device,
-                    sort_key=lambda x: len(x.text),
-                    sort_within_batch=True,
-                    repeat=False,
-                    shuffle=args.shuffle_train,
-                )
-            elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
-                selected_train_data = TokenizedDataset(
-                    file_path=(''),
-                )
-                selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
-                # selected_train_data.text = [] # clear all the samples
-                # selected_train_data.ids = [] # clear all the samples
-                # selected_train_data.attention_mask = [] # clear all the samples
-                # selected_train_data.label = [] # clear all the samples
-                # selected_train_data.idx = [] # clear all the samples
-                # selected_train_data.is_syn = [] # clear all the samples
-                # for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
-                #     selected_train_data.text += [train_data[row].text[column]]
-                #     selected_train_data.ids += [train_data[row].ids[column]]
-                #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
-                #     selected_train_data.label += [train_data[row].label[column]]
-                #     selected_train_data.idx += [_id]
-                #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
-                #     _id += 1
-                theta = torch.tensor([_saved_theta[row][col] for row,col in zip(high_quality_sample_rows, high_quality_sample_columns)]).to(args.device)
-                train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
-            # init_theta = copy.deepcopy(theta)
-            for epoch in range(epoch_adjust//3):
-                logging.debug(f"epoch #{epoch} for good-sample-one-hot")
-                current_outer_iter_trained_model = []
-                theta_mapped = copy.deepcopy(theta)
-                # print(type(theta_mapped),theta_mapped)
-                # best_theta = copy.deepcopy(theta)
+    # # (1) train only on good sample with one-hot label
+    # if final_test:
+    #     if 'Reweight' in args.fuse_dataset_weight:
+    #         print_info = ["weight-adjust-for-selection-kd-fused-(good-one-hot)", "fused_adjust_iter", "good_train_loss_selction_ft", "good_train_acc_selction_ft", "good_test_acc_selction_ft", "good_test_loss_selction_ft"]
+    #         high_quality_one_hot_theta, high_quality_one_hot_model_copy, _, _ = solve_reweight_v2(args, args.fused_model, train_data, _saved_theta, (high_quality_sample_rows, high_quality_sample_columns), train_loader_backward, valid_loader, test_loader, print_info=print_info, reweight_epoch=epoch_adjust//3, soft_label=None)
+    #     else:
+    #         diverged = False
+    #         selected_train_dataset = []
+    #         _id = 0
+    #         if args.small_model_name.upper() == 'LSTM':
+    #             for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
+    #                 selected_train_dataset.append(copy.deepcopy(train_data[row][column]))
+    #                 selected_train_dataset[_id].idx = _id
+    #                 _id += 1
+    #             selected_train_data = data.Dataset(selected_train_dataset, train_data[0].fields)
+    #             theta = torch.stack(_saved_theta)[high_quality_sample_rows, high_quality_sample_columns]
+    #             train_iter, = BucketIterator.splits(
+    #                 (selected_train_data,),
+    #                 batch_sizes=(args.train_batch_size,),
+    #                 device=device,
+    #                 sort_key=lambda x: len(x.text),
+    #                 sort_within_batch=True,
+    #                 repeat=False,
+    #                 shuffle=args.shuffle_train,
+    #             )
+    #         elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+    #             selected_train_data = TokenizedDataset(
+    #                 file_path=(''),
+    #             )
+    #             selected_train_data.copy_selected_dataset(train_data, high_quality_sample_rows, high_quality_sample_columns)
+    #             # selected_train_data.text = [] # clear all the samples
+    #             # selected_train_data.ids = [] # clear all the samples
+    #             # selected_train_data.attention_mask = [] # clear all the samples
+    #             # selected_train_data.label = [] # clear all the samples
+    #             # selected_train_data.idx = [] # clear all the samples
+    #             # selected_train_data.is_syn = [] # clear all the samples
+    #             # for row, column in zip(high_quality_sample_rows, high_quality_sample_columns):
+    #             #     selected_train_data.text += [train_data[row].text[column]]
+    #             #     selected_train_data.ids += [train_data[row].ids[column]]
+    #             #     selected_train_data.attention_mask += [train_data[row].attention_mask[column]]
+    #             #     selected_train_data.label += [train_data[row].label[column]]
+    #             #     selected_train_data.idx += [_id]
+    #             #     selected_train_data.is_syn += [train_data[row].is_syn[column]]
+    #             #     _id += 1
+    #             theta = torch.tensor([_saved_theta[row][col] for row,col in zip(high_quality_sample_rows, high_quality_sample_columns)]).to(args.device)
+    #             train_iter = DataLoader(selected_train_data, batch_size=args.train_batch_size, shuffle=args.shuffle_train)
+    #         # init_theta = copy.deepcopy(theta)
+    #         for epoch in range(epoch_adjust//3):
+    #             logging.debug(f"epoch #{epoch} for good-sample-one-hot")
+    #             current_outer_iter_trained_model = []
+    #             theta_mapped = copy.deepcopy(theta)
+    #             # print(type(theta_mapped),theta_mapped)
+    #             # best_theta = copy.deepcopy(theta)
                     
-                ##############  ##############
-                diverged = True # diverged==True means loss==nan, which means the training failed
-                while diverged:
-                    model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, None, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
-                    print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                    if epoch_adjust % args.check_ft_every==0:
-                        model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, None, theta_mapped.detach(), 1, args.inner_obj, test_loader)
-                        # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
+    #             ##############  ##############
+    #             diverged = True # diverged==True means loss==nan, which means the training failed
+    #             while diverged:
+    #                 model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model_copy, selected_train_data, None, theta_mapped.detach(), args.epoch_converge, args.inner_obj, test_loader)
+    #                 print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+    #                 if epoch_adjust % args.check_ft_every==0:
+    #                     model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, None, theta_mapped.detach(), 1, args.inner_obj, test_loader)
+    #                     # model_copy_converged_ft, loss_ft, train_acc_ft, model_weights_cache_ft, opt_checkpoints_cache_ft, diverged_ft = train_to_converge(args, model_copy, selected_train_data, theta_mapped.detach(), args.epoch_converge_fully_train, args.inner_obj)
 
-                current_outer_iter_trained_model.append(model_copy_converged)
+    #             current_outer_iter_trained_model.append(model_copy_converged)
                 
-                if epoch_adjust % args.check_ft_every == 0:
-                    test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-                    print(f"weight-adjust-for-selection-kd-fused-(good-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
-                    logging.info(f"weight-adjust-for-selection-kd-fused-(good-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
-                    if args.wandb:
-                        wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+    #             if epoch_adjust % args.check_ft_every == 0:
+    #                 test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+    #                 print(f"weight-adjust-for-selection-kd-fused-(good-one-hot): #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
+    #                 logging.info(f"weight-adjust-for-selection-kd-fused-(good-one-hot): , #fused_adjust_iter={epoch}, beta({args.BETA}), good_train_loss_selction_ft={loss_ft}, good_train_acc_selction_ft={train_acc_ft}, good_test_acc_selction_ft={test_acc1_ft}, good_test_loss_selction_ft={test_loss_ft}")
+    #                 if args.wandb:
+    #                     wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
-                theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
-                theta = copy.deepcopy(theta_mapped[0])
-            high_quality_one_hot_theta = copy.deepcopy(theta)
-            high_quality_one_hot_model_copy = copy.deepcopy(model_copy_converged_ft)
-            high_quality_one_hot_theta = high_quality_one_hot_theta.to("cpu")
-            high_quality_one_hot_model_copy = high_quality_one_hot_model_copy.to("cpu")
+    #             theta_mapped, model_total_acc = weight_decay(args, current_outer_iter_trained_model, [selected_train_data], [theta_mapped], beta=args.BETA, _type=args.weight_adjust_criterial, single_dataset=True)
+    #             theta = copy.deepcopy(theta_mapped[0])
+    #         high_quality_one_hot_theta = copy.deepcopy(theta)
+    #         high_quality_one_hot_model_copy = copy.deepcopy(model_copy_converged_ft)
+    #         high_quality_one_hot_theta = high_quality_one_hot_theta.to("cpu")
+    #         high_quality_one_hot_model_copy = high_quality_one_hot_model_copy.to("cpu")
 
     # ############### prepare total_data for later use ###############
     accumulate_sampels = [0]
@@ -2550,34 +2550,34 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             elif 'increasedTheta' in args.fuse_dataset_sample_selection:
                 high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column = train_to_converge_with_weight_adjust_and_selection_fused(args, args.fused_model, train_data, new_theta_mapped, (None, None), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, test_loader, outer_iter)
             torch.save((high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), f"{args.result_file_path}/iter{outer_iter}_quality_select.pth")
-            # generate kd label awaring to sample qualtiy
-            if args.kd_aggregate_weight == 'Equal' or args.kd_aggregate_weight == 'Entropy':
-                model_sample = torch.tensor(args.sample_each_llm).to(args.device)
-                model_importance = model_sample / torch.sum(model_sample)
-            elif args.kd_aggregate_weight == 'Model':
-                model_importance = model_total_acc / torch.sum(model_total_acc)
-            elif args.kd_aggregate_weight == 'EqualModel':
-                model_sample = torch.tensor(args.sample_each_llm).to(args.device)
-                model_importance = model_total_acc * model_sample
-                model_importance = model_total_acc / torch.sum(model_total_acc)
-            else:
-                assert args.kd_aggregate_weight == 'Equal', f"Not supported KD label aggregation weight: '{args.kd_aggregate_weight}'"
-            if args.kd_aggregate_weight == 'Entropy':
-                if 'Flip' in args.fuse_dataset_sample_selection:
-                    # print(f'here0-1, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-                    kd_labeled_data, logits_per_sample, loss_per_sample, error_per_sample, logits_per_sample_ns, loss_per_sample_ns, error_per_sample_ns, logits_per_sample_s, loss_per_sample_s, error_per_sample_s = kd_label_entropy_aware(args, new_current_outer_iter_trained_more_steps_model, new_train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
-                    # print(f'here0-2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-                    trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, new_train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter, final_test=(not perform_few_shot_gen))
-                    # print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
-                else:
-                    kd_labeled_data, logits_per_sample, loss_per_sample, error_per_sample, logits_per_sample_ns, loss_per_sample_ns, error_per_sample_ns, logits_per_sample_s, loss_per_sample_s, error_per_sample_s = kd_label_entropy_aware(args, current_outer_iter_trained_more_steps_model, train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
-                    trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter, final_test=(not perform_few_shot_gen))
-            else:
-                assert args.kd_aggregate_weight == 'Entropy', 'Implementation Error, currently supporting only Entropy based method'
-                if 'Flip' in args.fuse_dataset_sample_selection:
-                    kd_labled_data, logits_per_sample, loss_per_sample, error_per_sample = kd_label_aware(args, new_current_outer_iter_trained_more_steps_model, new_train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
-                else:
-                    kd_labled_data, logits_per_sample, loss_per_sample, error_per_sample = kd_label_aware(args, current_outer_iter_trained_more_steps_model, train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
+            # # generate kd label awaring to sample qualtiy
+            # if args.kd_aggregate_weight == 'Equal' or args.kd_aggregate_weight == 'Entropy':
+            #     model_sample = torch.tensor(args.sample_each_llm).to(args.device)
+            #     model_importance = model_sample / torch.sum(model_sample)
+            # elif args.kd_aggregate_weight == 'Model':
+            #     model_importance = model_total_acc / torch.sum(model_total_acc)
+            # elif args.kd_aggregate_weight == 'EqualModel':
+            #     model_sample = torch.tensor(args.sample_each_llm).to(args.device)
+            #     model_importance = model_total_acc * model_sample
+            #     model_importance = model_total_acc / torch.sum(model_total_acc)
+            # else:
+            #     assert args.kd_aggregate_weight == 'Equal', f"Not supported KD label aggregation weight: '{args.kd_aggregate_weight}'"
+            # if args.kd_aggregate_weight == 'Entropy':
+            #     if 'Flip' in args.fuse_dataset_sample_selection:
+            #         # print(f'here0-1, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            #         kd_labeled_data, logits_per_sample, loss_per_sample, error_per_sample, logits_per_sample_ns, loss_per_sample_ns, error_per_sample_ns, logits_per_sample_s, loss_per_sample_s, error_per_sample_s = kd_label_entropy_aware(args, new_current_outer_iter_trained_more_steps_model, new_train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
+            #         # print(f'here0-2, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            #         trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, new_train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter, final_test=(not perform_few_shot_gen))
+            #         # print(f'here0-3, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
+            #     else:
+            #         kd_labeled_data, logits_per_sample, loss_per_sample, error_per_sample, logits_per_sample_ns, loss_per_sample_ns, error_per_sample_ns, logits_per_sample_s, loss_per_sample_s, error_per_sample_s = kd_label_entropy_aware(args, current_outer_iter_trained_more_steps_model, train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
+            #         trained_model, trained_theta = train_to_converge_with_selection_kd_fused(args, args.fused_model, train_data, new_theta_mapped, (high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column), (logits_per_sample, logits_per_sample_ns, logits_per_sample_s), args.max_outer_iter, args.epoch_converge_fully_train, args.inner_obj, train_loader_backward, valid_loader, test_loader, outer_iter, final_test=(not perform_few_shot_gen))
+            # else:
+            #     assert args.kd_aggregate_weight == 'Entropy', 'Implementation Error, currently supporting only Entropy based method'
+            #     if 'Flip' in args.fuse_dataset_sample_selection:
+            #         kd_labled_data, logits_per_sample, loss_per_sample, error_per_sample = kd_label_aware(args, new_current_outer_iter_trained_more_steps_model, new_train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
+            #     else:
+            #         kd_labled_data, logits_per_sample, loss_per_sample, error_per_sample = kd_label_aware(args, current_outer_iter_trained_more_steps_model, train_data, model_importance, high_qualtiy_sample_row, high_quality_sample_column, low_qualtiy_sample_row, low_quality_sample_column)
 
         ############################ get a overall dataset based based on weight decay (end) ############################
 

@@ -303,8 +303,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         if SYN_DATA_PATH == 'data_new/':
             train_data_path = f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl'
         else:
-            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
-            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp3/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_200/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/100_20_20/train.jsonl' # accumulate-adjust-2-2
@@ -883,12 +883,14 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
                             break
                         else:
                             unique_label_counter += 1
-
                             l2_distances = cdist(embeddings_label[i][unique_label], embeddings_label[-1][unique_label], metric='euclidean')
                             cos_distances = cdist(embeddings_label[i][unique_label], embeddings_label[-1][unique_label], metric='cosine')
                             within_class_l2[int(i_step-1)][i] += l2_distances.sum()/l2_distances.size
                             within_class_cos[int(i_step-1)][i] += cos_distances.sum()/cos_distances.size
                             print(f"{l2_distances=}, {cos_distances=}, {within_class_l2[int(i_step-1)][i]=}, {within_class_cos[int(i_step-1)][i]=}")
+                    else:
+                        within_class_l2[int(i_step-1)][i] = float('inf')
+                        within_class_cos[int(i_step-1)][i] = float('inf')
                     if within_class_l2[int(i_step-1)][i] != float('inf'):
                         within_class_l2[int(i_step-1)][i] = within_class_l2[int(i_step-1)][i] / unique_label_counter
                     if within_class_cos[int(i_step-1)][i] != float('inf'):
@@ -949,10 +951,11 @@ def calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_la
                             break
                         else:
                             unique_label_counter += 1
-
                             fid_value = calculate_fid(embeddings_label[i][unique_label], embeddings_label[-1][unique_label])
                             within_class_fid[int(i_step-1)][i] += fid_value.sum()/fid_value.size
                             print(f"{fid_value=}, {within_class_fid[int(i_step-1)][i]=}")
+                    else:
+                        within_class_fid[int(i_step-1)][i] = float('inf')
                     if within_class_fid[int(i_step-1)][i] != float('inf'):
                         within_class_fid[int(i_step-1)][i] = within_class_fid[int(i_step-1)][i] / unique_label_counter
                 # ############# within_class_kl calculation #############
@@ -1108,9 +1111,9 @@ if __name__ == "__main__":
 
     save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
 
-    ############## calculate and save tsne ##############
-    calculate_and_save_tsne(args)
-    ############## calculate and save tsne ##############
+    # ############## calculate and save tsne ##############
+    # calculate_and_save_tsne(args)
+    # ############## calculate and save tsne ##############
 
     # assert 1 == 0
 
