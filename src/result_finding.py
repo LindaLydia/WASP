@@ -507,12 +507,28 @@ def group_mean_calculation():
 
 def get_accumualte_results_in_iter():
 
-    columns_hyper_parameter = ['STM', 'TASK', 'NUM_PLM', 'NK', 'PLM_NAME', 'TOTAL_NK', 'INIT_SAMPLE_COUNT', 'STEPS_COUNT', 'SAMPLE_SELECTION', 'INHERIT_WEIGHT', 'WEIGHT_DECAY', 'BETA', 'KD_TEMPERATURE', 'KD_ALPHA', 'SYN_DATA', 'PROMPTING', 'EMBEDDING_TRANSFORMER', 'MODEL_WEIGHTING', 'MODEL_WEIGHTING_TEMPERATURE', 'FEW_SHOT_K', 'FEW_SHOT_SAMPLE_POOL_FOR_EACH', 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO', 'SEED', 'TRAIN_METHOD']
+    '''
+    [0] ./
+    [1] logging/
+    [2] multiGold_eval_on_real/
+    [3] with_real_few_shot_accumulate_votingCLASS_promptCLASS_8_0.0_randomCartographyOriginalContrast_top/
+    [4] gold_100_1_0.0_OODgold/
+    [5] bert-base-uncased/
+    [6] sentence-t5-base/
+    [7] 0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/
+    [8] 0_1_init200_steps4_unbalance_temp1.0/
+    [9] fewshotK8_15_0.5/
+    [10] imdb/
+    [11] gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/
+    [12] log_data_accumulate_4.408560690471575_12345.txt
+    '''
+
+    columns_hyper_parameter = ['STM', 'TASK', 'NUM_PLM', 'NK', 'PLM_NAME', 'TOTAL_NK', 'GOLD_NUM', 'GOLD_NUM', 'GOLD_PARTY', 'GOLD_DISTRIBUTE', 'GOLD_DIRICHLET', 'ONLY_GOLD', 'INIT_SAMPLE_COUNT', 'STEPS_COUNT', 'SAMPLE_COUNT_PER_STEP', 'SAMPLE_SELECTION', 'INHERIT_WEIGHT', 'WEIGHT_DECAY', 'BETA', 'KD_TEMPERATURE', 'KD_ALPHA', 'SYN_DATA', 'PROMPTING', 'EMBEDDING_TRANSFORMER', 'MODEL_WEIGHTING', 'MODEL_WEIGHTING_TEMPERATURE', 'FEW_SHOT_K', 'FEW_SHOT_SAMPLE_POOL_FOR_EACH', 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO', 'SEED', 'TRAIN_METHOD']
     plm_columns = []
     for plm_name in ['gpt-4-turbo-preview', 'gpt-3.5-turbo-instruct', 'gpt2-xl', 'llama-2-7b-chat-hf', 'vicuna-7b-1.5v', 'opt-6.7b', 'chatglm3-6b-base', 'flan-t5-xl']:
         plm_columns = plm_columns + [plm_name+f'_step{i_step}' for i_step in range(5)]
     fuse_columns = []
-    for fuse_name in ['all-one-hot']:
+    for fuse_name in ['all-one-hot', 'fedAVG', 'fedAVG_v2']:
         fuse_columns = fuse_columns + [fuse_name+f'_step{i_step}' for i_step in range(5)]
     fuse_columns = fuse_columns + ['all-kd', 'all-kd-s', 'good-one-hot', 'good-kd']
     # df_columns_1 = ['STM', 'TASK', 'NUM_PLM', 'NK', 'PLM_NAME', 'TOTAL_NK', 'INIT_SAMPLE_COUNT', 'STEPS_COUNT', 'SAMPLE_SELECTION', 'INHERIT_WEIGHT', 'WEIGHT_DECAY', 'BETA', 'KD_TEMPERATURE', 'KD_ALPHA', 'SYN_DATA', 'SEED', 'TRAIN_METHOD', 'gpt-4-turbo-preview', 'gpt-3.5-turbo-instruct', 'gpt2-xl', 'llama-2-7b-chat-hf', 'vicuna-7b-1.5v', 'opt-6.7b', 'chatglm3-6b-base', 'flan-t5-xl', 'all-one-hot', 'all-kd', 'all-kd-s', 'good-one-hot', 'good-kd']
@@ -535,17 +551,12 @@ def get_accumualte_results_in_iter():
     # for root, dirs, files in os.walk("./logging/eval_on_real/few_shot_accumulate_v2/"):
     # for root, dirs, files in os.walk("./logging/eval_on_real/few_shot_accumulate/bert-base-uncased/0.9_errorOnlyWrongOnlySelf_Adjust_increasedThetaFlip_Entropy_KD1_FuseDataset1/0_1_init200_steps4/fewshotK8_5_0.3/imdb/gpt2-xl_1000__llama-2-7b-chat-hf_1000/"):
     for _dir in [
-                 './logging/eval_on_real/'
+                #  './logging/eval_on_real/'
+                    './logging/multiGold_eval_on_real/'
                 #  '/home/DAIR/zouty/ModelFederation/PrivateGenerateEnhancement/src/logging/eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_random_top/bert-base-uncased/sentence-t5-base/0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/0_1_init1200_steps4_unbalance_temp3/fewshotK8_15_0.5/imdb/gpt-3.5-turbo-instruct_6000'
                 #  './logging/eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_Cartography_top/bert-base-uncased/sentence-t5-base/0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/0_1_init200_steps4_unbalance_temp3/fewshotK8_5_0.5/imdb/gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/'
                  ]:
         for root, dirs, files in os.walk(_dir):
-            '''
-            ./logging/eval_on_real/with_real_few_shot_accumulate_votingCLASS_8_Cartography_top/bert-base-uncased/sentence-t5-base/
-                    0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/0_1_init200_steps4_unbalance_temp3/
-                    fewshotK8_5_0.5/imdb/gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/
-                    log_data_accumulate_4.408560690471575_12345.txt
-            '''
             for file in files:
                 print(f"{file=}")
                 if file.endswith('.txt'):
@@ -567,8 +578,8 @@ def get_accumualte_results_in_iter():
                     #     continue
                     print(file_path)
                     folders = file_path.split("/")
-                    MODEL = folders[4]
-                    EMBEDDING_TRANSFORMER = MODEL if f'{MODEL}/0.9_' in file_path else folders[5]
+                    MODEL = folders[5]
+                    EMBEDDING_TRANSFORMER = MODEL if f'{MODEL}/0.9_' in file_path else folders[6]
                     TASK = folders[-3]
                     KD_TEMPERATURE = 1
                     MODEL_WEIGHTING = 'unbalance' if 'unbalance' in folders[-5] else 'balance'
@@ -578,6 +589,11 @@ def get_accumualte_results_in_iter():
                     FEW_SHOT_SAMPLE_POOL_FOR_EACH = 40
                     FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO = 0.5
                     PROMPTING = 'influenceCartography'
+                    GOLD_NUM = 100
+                    GOLD_PARTY = 1
+                    GOLD_DISTRIBUTE = 'OOD'
+                    GOLD_DIRICHLET = 0.0
+                    ONLY_GOLD = -1.0
                     # print(MODEL)
                     for folder in folders:
                         # print(folder)
@@ -600,21 +616,32 @@ def get_accumualte_results_in_iter():
                                 SYN_DATA = 'few_shot'
                             if 'mixed' in folder:
                                 SYN_DATA += '_mixed'
-                            if 'voting' in folder:
-                                temps = folder.split('_')
-                                PROMPTING = temps[5]+"_"+str(temps[6])
+                            # if 'voting' in folder:
+                            #     temps = folder.split('_')
+                            #     PROMPTING = temps[5]+"_"+str(temps[7])
+                            # else:
+                            #     PROMPTING = ''
+                            # if '_sampling' in folder:
+                            #     PROMPTING += '_sampling'
+                            # else:
+                            #     PROMPTING += '_top'
+                            # if '_influence' in folder:
+                            #     PROMPTING += '_influence'
+                            # elif '_random' in folder:
+                            #     PROMPTING += '_random'
+                            # elif '_Cartography' in folder:
+                            #     PROMPTING += '_Cartography'
+                            _idx = folder.find('voting')
+                            if _idx != -1:
+                                PROMPTING = folder[_idx:]
                             else:
                                 PROMPTING = ''
-                            if '_sampling' in folder:
-                                PROMPTING += '_sampling'
-                            else:
-                                PROMPTING += '_top'
-                            if '_influence' in folder:
-                                PROMPTING += '_influence'
-                            elif '_random' in folder:
-                                PROMPTING += '_random'
-                            elif '_Cartography' in folder:
-                                PROMPTING += '_Cartography'
+                        elif 'GOLD' in folder:
+                            temps = folder.split('_')
+                            GOLD_NUM = int(temps[1])
+                            GOLD_PARTY = int(temps[2])
+                            GOLD_DISTRIBUTE = temps[-1][:-4]
+                            GOLD_DIRICHLET = float(temps[3])
                         elif 'init' in folder:
                         # elif len(folder.split('_')) == 2 and (not any(char.isalpha() for char in folder)):
                             float_numbers = folder.split('_')
@@ -652,7 +679,8 @@ def get_accumualte_results_in_iter():
                     # print(f"BETA={BETA}, NK={NK}, PLM_NAME={PLM_NAME}")
                     with open(file_path, 'r') as file:
                         test_acc_result = {"max":{}, "max_epoch":{}, "first":{}, "trajectory":{}, "mean":{}}
-                        for plm_name in PLM_NAME:
+                        SAMPLE_COUNT = [[] * (STEPS_COUNT+1)]
+                        for plm_name in PLM_NAME + ['all-one-hot', 'fedAVG', 'fedAVG_v2']:
                             test_acc_result["max"][plm_name] = [-1.0] * (STEPS_COUNT+1)
                             test_acc_result["first"][plm_name] = [-1.0] * (STEPS_COUNT+1)
                             test_acc_result["max_epoch"][plm_name] = [-1] * (STEPS_COUNT+1)
@@ -671,7 +699,7 @@ def get_accumualte_results_in_iter():
                                 # assert current_total_sample >= last_total_sample, f"{current_total_sample=}, {last_total_sample=}, too much record in file {file_path}"
                                 if current_total_sample < last_total_sample:
                                     for key in test_acc_result["max"].keys():
-                                        if key in PLM_NAME + ['all-one-hot']:
+                                        if key in PLM_NAME + ['all-one-hot', 'fedAVG', 'fedAVG_v2']:
                                             test_acc_result["max"][key] = test_acc_result["max"][key][:1]+ [-1.0] * (STEPS_COUNT)
                                             test_acc_result["first"][key] = test_acc_result["first"][key][:1] + [-1.0] * (STEPS_COUNT)
                                             test_acc_result["max_epoch"][key] = test_acc_result["max_epoch"][key][:1] + [-1] * (STEPS_COUNT)
@@ -693,6 +721,12 @@ def get_accumualte_results_in_iter():
                                     step_counter += 1
                             if not 'test_acc' in line:
                                 continue
+                            if 'use [' in line and '] train data...' in line:
+                                start_idx = line.find('[')
+                                end_idx = line.find(']')
+                                str_of_list = line[start_idx+1:end_idx]
+                                list_of_str = str_of_list.replace(' ', '').split(',')
+                                SAMPLE_COUNT[step_counter+1] = [int(_i) for _i in list_of_str]
                             if "LLM#" in line:
                                 if 'Flip' in SAMPLE_SELECTION and not ', new_' in line:
                                     continue
@@ -733,96 +767,132 @@ def get_accumualte_results_in_iter():
                                         # print(f"{line=}, {re.findall(iter_pattern, line)=}")
                                         test_acc_result["max_epoch"][plm_name][step_counter+1] = int(re.findall(iter_pattern, line)[0][5:])
                                     test_acc_result["trajectory"][plm_name][step_counter+1].append(float(matches[-2])*multiply_coefficient)                            
-                            elif '-(' in line:
-                                type_pattern = r'\((.*?)\)'
-                                matches = re.findall(type_pattern, line)
-                                FUSE_NAME = matches[0]
-                                print(f"{FUSE_NAME=}")
-                                if 'separateod' in FUSE_NAME and not 'vote-(' in line:
-                                    continue
-                                # print(f"1{FUSE_NAME=}")
-                                if not FUSE_NAME in test_acc_result["max"].keys():
-                                    if FUSE_NAME != 'all-one-hot':
-                                        # print(f"add key {FUSE_NAME}")
-                                        test_acc_result["max"][FUSE_NAME] = -1.0
-                                        test_acc_result["first"][FUSE_NAME] = -1.0
-                                        test_acc_result["max_epoch"][FUSE_NAME] = -1
-                                        test_acc_result["trajectory"][FUSE_NAME] = []
-                                        # test_acc_result["mean"][FUSE_NAME] = -1
-                                        FUSE_NAME_columns.append(FUSE_NAME)
-                                    else:
-                                        # print(f"add key {FUSE_NAME}")
-                                        test_acc_result["max"][FUSE_NAME] = [-1.0] * (STEPS_COUNT+1)
-                                        test_acc_result["first"][FUSE_NAME] = [-1.0] * (STEPS_COUNT+1)
-                                        test_acc_result["max_epoch"][FUSE_NAME] = [-1] * (STEPS_COUNT+1)
-                                        test_acc_result["trajectory"][FUSE_NAME] = [[]] * (STEPS_COUNT+1)
-                                        # test_acc_result["mean"][FUSE_NAME] = [-1] * (STEPS_COUNT+1)
-                                        FUSE_NAME_columns.append(FUSE_NAME)
-
-                                # print("no LLM# in line:", line)
+                            elif 'fedAVG' in line or 'all LLMs' in line:
+                                fed_type = 'fedAVG_v2' if '_v2' in line else ( 'all-one-hot' if 'LLMs' in line else 'fedAVG')
                                 floating_point_pattern = r'(?<=\=)[+-]?\d*\.\d+'
                                 matches = re.findall(floating_point_pattern, line)
-                                # # print(matches)
-                                # train_loss.append(float(matches[0]))
-                                # train_acc.append(float(matches[1]))
-                                # test_acc.append(float(matches[2]))
-                                # test_loss.append(float(matches[3]))
-                                if 'vote-(' in line:
-                                    match_idx = 0
-                                else:
-                                    match_idx = -2
-                                # print(f"{line=}, {match_idx=}, matches={matches}")
-                                if FUSE_NAME != 'all-one-hot':
-                                    if test_acc_result["first"][FUSE_NAME] < 0:
-                                        test_acc_result["first"][FUSE_NAME] = float(matches[match_idx])*multiply_coefficient
-                                    if test_acc_result["max"][FUSE_NAME] < float(matches[match_idx])*multiply_coefficient:
-                                        test_acc_result["max"][FUSE_NAME] = float(matches[match_idx])*multiply_coefficient
+                                # pattern = r'#iter=-?\d+'
+                                # matches = re.findall(pattern, line)
+                                # iter_count = int(matches[0][6:])
+                                if 'Flip' in SAMPLE_SELECTION:
+                                    # print(f"in flip & plm, {step_counter=}")
+                                    if step_counter < 0 and ONLY_GOLD < 0 and fed_type == 'fedAVG':
+                                        ONLY_GOLD = float(matches[-2])*multiply_coefficient
+                                        continue
+                                    if test_acc_result["first"][fed_type][step_counter] < 0: # and float(matches[2]) > 0.5000000000001
+                                        test_acc_result["first"][fed_type][step_counter] = float(matches[-2])*multiply_coefficient
+                                    if test_acc_result["max"][fed_type][step_counter] < float(matches[-2])*multiply_coefficient: # and float(matches[2]) > 0.5000000000001
+                                        test_acc_result["max"][fed_type][step_counter] = float(matches[-2])*multiply_coefficient
                                         iter_pattern = r'iter=\d+'
-                                        # print(re.findall(iter_pattern, line))
-                                        test_acc_result["max_epoch"][FUSE_NAME] = int(re.findall(iter_pattern, line)[0][5:])
-                                    test_acc_result["trajectory"][FUSE_NAME].append(float(matches[match_idx])*multiply_coefficient)
+                                        # print(f"{line=}, {re.findall(iter_pattern, line)=}")
+                                        test_acc_result["max_epoch"][fed_type][step_counter] = int(re.findall(iter_pattern, line)[0][5:])
+                                    test_acc_result["trajectory"][fed_type][step_counter].append(float(matches[-2])*multiply_coefficient)                            
                                 else:
-                                    # print(f"{step_counter[-1]+1=}")
-                                    # if test_acc_result["first"][FUSE_NAME][step_counter[-1]+1] < 0:
-                                    #     # print(f"{matches=}")
-                                    #     step_counter[-1] += 1
-                                    #     test_acc_result["first"][FUSE_NAME][step_counter[-1]] = float(matches[match_idx])*multiply_coefficient
-                                    # if test_acc_result["max"][FUSE_NAME][step_counter[-1]] < float(matches[match_idx])*multiply_coefficient:
-                                    #     test_acc_result["max"][FUSE_NAME][step_counter[-1]] = float(matches[match_idx])*multiply_coefficient
-                                    #     iter_pattern = r'iter=\d+'
-                                    #     # print(re.findall(iter_pattern, line))
-                                    #     test_acc_result["max_epoch"][FUSE_NAME][step_counter[-1]] = int(re.findall(iter_pattern, line)[0][5:])
-                                    # test_acc_result["trajectory"][FUSE_NAME][step_counter[-1]].append(float(matches[match_idx])*multiply_coefficient)
-                                    # print(f"{step_counter=}")
-                                    if NUM_PLM == 1 and 'Flip' not in SAMPLE_SELECTION and last_total_sample == 0:
-                                        if test_acc_result["first"][FUSE_NAME][step_counter+1] < 0:
-                                            # print(f"{matches=}")
-                                            test_acc_result["first"][FUSE_NAME][step_counter+1] = float(matches[match_idx])*multiply_coefficient
-                                        if test_acc_result["max"][FUSE_NAME][step_counter+1] < float(matches[match_idx])*multiply_coefficient:
-                                            test_acc_result["max"][FUSE_NAME][step_counter+1] = float(matches[match_idx])*multiply_coefficient
-                                            iter_pattern = r'iter=\d+'
-                                            # print(re.findall(iter_pattern, line))
-                                            test_acc_result["max_epoch"][FUSE_NAME][step_counter+1] = int(re.findall(iter_pattern, line)[0][5:])
-                                        test_acc_result["trajectory"][FUSE_NAME][step_counter+1].append(float(matches[match_idx])*multiply_coefficient)
-                                    else:
-                                        if test_acc_result["first"][FUSE_NAME][step_counter] < 0:
-                                            # print(f"{matches=}")
-                                            test_acc_result["first"][FUSE_NAME][step_counter] = float(matches[match_idx])*multiply_coefficient
-                                        if test_acc_result["max"][FUSE_NAME][step_counter] < float(matches[match_idx])*multiply_coefficient:
-                                            test_acc_result["max"][FUSE_NAME][step_counter] = float(matches[match_idx])*multiply_coefficient
-                                            iter_pattern = r'iter=\d+'
-                                            # print(re.findall(iter_pattern, line))
-                                            test_acc_result["max_epoch"][FUSE_NAME][step_counter] = int(re.findall(iter_pattern, line)[0][5:])
-                                        test_acc_result["trajectory"][FUSE_NAME][step_counter].append(float(matches[match_idx])*multiply_coefficient)
-                        # print(f"{FUSE_NAME=}")
-                        # # print(test_acc_result["trajectory"][FUSE_NAME])
-                        # test_acc_result["mean"][FUSE_NAME] = np.mean(test_acc_result["trajectory"][FUSE_NAME], axis=-1)
+                                    print(f"in no-flip & plm, {step_counter=}")
+                                    if step_counter >= 4:
+                                        continue
+                                    if step_counter < 0 and ONLY_GOLD < 0 and fed_type == 'fedAVG':
+                                        ONLY_GOLD = float(matches[-2])*multiply_coefficient
+                                        continue
+                                    if test_acc_result["first"][fed_type][step_counter+1] < 0: # and float(matches[2]) > 0.5000000000001
+                                        test_acc_result["first"][fed_type][step_counter+1] = float(matches[-2])*multiply_coefficient
+                                    if test_acc_result["max"][fed_type][step_counter+1] < float(matches[-2])*multiply_coefficient: # and float(matches[2]) > 0.5000000000001
+                                        test_acc_result["max"][fed_type][step_counter+1] = float(matches[-2])*multiply_coefficient
+                                        # iter_pattern = r'iter=\d+'
+                                        # # print(f"{line=}, {re.findall(iter_pattern, line)=}")
+                                        # test_acc_result["max_epoch"][plm_name][step_counter+1] = int(re.findall(iter_pattern, line)[0][5:])
+                                        test_acc_result["max_epoch"][plm_name][step_counter+1] = int(step_counter+1)
+                                    test_acc_result["trajectory"][plm_name][step_counter+1].append(float(matches[-2])*multiply_coefficient)                            
+                        #     elif '-(' in line:
+                        #         type_pattern = r'\((.*?)\)'
+                        #         matches = re.findall(type_pattern, line)
+                        #         FUSE_NAME = matches[0]
+                        #         print(f"{FUSE_NAME=}")
+                        #         if 'separateod' in FUSE_NAME and not 'vote-(' in line:
+                        #             continue
+                        #         # print(f"1{FUSE_NAME=}")
+                        #         if not FUSE_NAME in test_acc_result["max"].keys():
+                        #             if FUSE_NAME != 'all-one-hot':
+                        #                 # print(f"add key {FUSE_NAME}")
+                        #                 test_acc_result["max"][FUSE_NAME] = -1.0
+                        #                 test_acc_result["first"][FUSE_NAME] = -1.0
+                        #                 test_acc_result["max_epoch"][FUSE_NAME] = -1
+                        #                 test_acc_result["trajectory"][FUSE_NAME] = []
+                        #                 # test_acc_result["mean"][FUSE_NAME] = -1
+                        #                 FUSE_NAME_columns.append(FUSE_NAME)
+                        #             else:
+                        #                 # print(f"add key {FUSE_NAME}")
+                        #                 test_acc_result["max"][FUSE_NAME] = [-1.0] * (STEPS_COUNT+1)
+                        #                 test_acc_result["first"][FUSE_NAME] = [-1.0] * (STEPS_COUNT+1)
+                        #                 test_acc_result["max_epoch"][FUSE_NAME] = [-1] * (STEPS_COUNT+1)
+                        #                 test_acc_result["trajectory"][FUSE_NAME] = [[]] * (STEPS_COUNT+1)
+                        #                 # test_acc_result["mean"][FUSE_NAME] = [-1] * (STEPS_COUNT+1)
+                        #                 FUSE_NAME_columns.append(FUSE_NAME)
+
+                        #         # print("no LLM# in line:", line)
+                        #         floating_point_pattern = r'(?<=\=)[+-]?\d*\.\d+'
+                        #         matches = re.findall(floating_point_pattern, line)
+                        #         # # print(matches)
+                        #         # train_loss.append(float(matches[0]))
+                        #         # train_acc.append(float(matches[1]))
+                        #         # test_acc.append(float(matches[2]))
+                        #         # test_loss.append(float(matches[3]))
+                        #         if 'vote-(' in line:
+                        #             match_idx = 0
+                        #         else:
+                        #             match_idx = -2
+                        #         # print(f"{line=}, {match_idx=}, matches={matches}")
+                        #         if FUSE_NAME != 'all-one-hot':
+                        #             if test_acc_result["first"][FUSE_NAME] < 0:
+                        #                 test_acc_result["first"][FUSE_NAME] = float(matches[match_idx])*multiply_coefficient
+                        #             if test_acc_result["max"][FUSE_NAME] < float(matches[match_idx])*multiply_coefficient:
+                        #                 test_acc_result["max"][FUSE_NAME] = float(matches[match_idx])*multiply_coefficient
+                        #                 iter_pattern = r'iter=\d+'
+                        #                 # print(re.findall(iter_pattern, line))
+                        #                 test_acc_result["max_epoch"][FUSE_NAME] = int(re.findall(iter_pattern, line)[0][5:])
+                        #             test_acc_result["trajectory"][FUSE_NAME].append(float(matches[match_idx])*multiply_coefficient)
+                        #         else:
+                        #             # print(f"{step_counter[-1]+1=}")
+                        #             # if test_acc_result["first"][FUSE_NAME][step_counter[-1]+1] < 0:
+                        #             #     # print(f"{matches=}")
+                        #             #     step_counter[-1] += 1
+                        #             #     test_acc_result["first"][FUSE_NAME][step_counter[-1]] = float(matches[match_idx])*multiply_coefficient
+                        #             # if test_acc_result["max"][FUSE_NAME][step_counter[-1]] < float(matches[match_idx])*multiply_coefficient:
+                        #             #     test_acc_result["max"][FUSE_NAME][step_counter[-1]] = float(matches[match_idx])*multiply_coefficient
+                        #             #     iter_pattern = r'iter=\d+'
+                        #             #     # print(re.findall(iter_pattern, line))
+                        #             #     test_acc_result["max_epoch"][FUSE_NAME][step_counter[-1]] = int(re.findall(iter_pattern, line)[0][5:])
+                        #             # test_acc_result["trajectory"][FUSE_NAME][step_counter[-1]].append(float(matches[match_idx])*multiply_coefficient)
+                        #             # print(f"{step_counter=}")
+                        #             if NUM_PLM == 1 and 'Flip' not in SAMPLE_SELECTION and last_total_sample == 0:
+                        #                 if test_acc_result["first"][FUSE_NAME][step_counter+1] < 0:
+                        #                     # print(f"{matches=}")
+                        #                     test_acc_result["first"][FUSE_NAME][step_counter+1] = float(matches[match_idx])*multiply_coefficient
+                        #                 if test_acc_result["max"][FUSE_NAME][step_counter+1] < float(matches[match_idx])*multiply_coefficient:
+                        #                     test_acc_result["max"][FUSE_NAME][step_counter+1] = float(matches[match_idx])*multiply_coefficient
+                        #                     iter_pattern = r'iter=\d+'
+                        #                     # print(re.findall(iter_pattern, line))
+                        #                     test_acc_result["max_epoch"][FUSE_NAME][step_counter+1] = int(re.findall(iter_pattern, line)[0][5:])
+                        #                 test_acc_result["trajectory"][FUSE_NAME][step_counter+1].append(float(matches[match_idx])*multiply_coefficient)
+                        #             else:
+                        #                 if test_acc_result["first"][FUSE_NAME][step_counter] < 0:
+                        #                     # print(f"{matches=}")
+                        #                     test_acc_result["first"][FUSE_NAME][step_counter] = float(matches[match_idx])*multiply_coefficient
+                        #                 if test_acc_result["max"][FUSE_NAME][step_counter] < float(matches[match_idx])*multiply_coefficient:
+                        #                     test_acc_result["max"][FUSE_NAME][step_counter] = float(matches[match_idx])*multiply_coefficient
+                        #                     iter_pattern = r'iter=\d+'
+                        #                     # print(re.findall(iter_pattern, line))
+                        #                     test_acc_result["max_epoch"][FUSE_NAME][step_counter] = int(re.findall(iter_pattern, line)[0][5:])
+                        #                 test_acc_result["trajectory"][FUSE_NAME][step_counter].append(float(matches[match_idx])*multiply_coefficient)
+                        # # print(f"{FUSE_NAME=}")
+                        # # # print(test_acc_result["trajectory"][FUSE_NAME])
+                        # # test_acc_result["mean"][FUSE_NAME] = np.mean(test_acc_result["trajectory"][FUSE_NAME], axis=-1)
                         
                         # # Step 2: Add rows to the DataFrame
                         # # Adding a row using a dictionary
-                        row_data_0 = {'STM':MODEL, 'TASK':TASK, 'NUM_PLM':NUM_PLM, 'NK':NK, 'PLM_NAME':PLM_NAME, 'TOTAL_NK':TOTAL_NK, 'INIT_SAMPLE_COUNT':INIT_SAMPLE_COUNT, 'STEPS_COUNT':STEPS_COUNT, 'SAMPLE_SELECTION':SAMPLE_SELECTION, 'INHERIT_WEIGHT':INHERIT_WEIGHT, 'WEIGHT_DECAY':WEIGHT_DECAY, 'BETA':BETA, 'KD_TEMPERATURE':KD_TEMPERATURE, 'KD_ALPHA':KD_ALPHA, 'SYN_DATA':SYN_DATA, 'EMBEDDING_TRANSFORMER':EMBEDDING_TRANSFORMER, 'MODEL_WEIGHTING':MODEL_WEIGHTING, 'MODEL_WEIGHTING_TEMPERATURE':MODEL_WEIGHTING_TEMPERATURE, 'PROMPTING':PROMPTING, 'FEW_SHOT_K':FEW_SHOT_K, 'FEW_SHOT_SAMPLE_POOL_FOR_EACH':FEW_SHOT_SAMPLE_POOL_FOR_EACH, 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO':FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO, 'SEED':SEED, 'TRAIN_METHOD':"vanilla"}
-                        row_data_1 = {'STM':MODEL, 'TASK':TASK, 'NUM_PLM':NUM_PLM, 'NK':NK, 'PLM_NAME':PLM_NAME, 'TOTAL_NK':TOTAL_NK, 'INIT_SAMPLE_COUNT':INIT_SAMPLE_COUNT, 'STEPS_COUNT':STEPS_COUNT, 'SAMPLE_SELECTION':SAMPLE_SELECTION, 'INHERIT_WEIGHT':INHERIT_WEIGHT, 'WEIGHT_DECAY':WEIGHT_DECAY, 'BETA':BETA, 'KD_TEMPERATURE':KD_TEMPERATURE, 'KD_ALPHA':KD_ALPHA, 'SYN_DATA':SYN_DATA, 'EMBEDDING_TRANSFORMER':EMBEDDING_TRANSFORMER, 'MODEL_WEIGHTING':MODEL_WEIGHTING, 'MODEL_WEIGHTING_TEMPERATURE':MODEL_WEIGHTING_TEMPERATURE, 'PROMPTING':PROMPTING, 'FEW_SHOT_K':FEW_SHOT_K, 'FEW_SHOT_SAMPLE_POOL_FOR_EACH':FEW_SHOT_SAMPLE_POOL_FOR_EACH, 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO':FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO, 'SEED':SEED, 'TRAIN_METHOD':"WA"}
-                        row_data_2 = {'STM':MODEL, 'TASK':TASK, 'NUM_PLM':NUM_PLM, 'NK':NK, 'PLM_NAME':PLM_NAME, 'TOTAL_NK':TOTAL_NK, 'INIT_SAMPLE_COUNT':INIT_SAMPLE_COUNT, 'STEPS_COUNT':STEPS_COUNT, 'SAMPLE_SELECTION':SAMPLE_SELECTION, 'INHERIT_WEIGHT':INHERIT_WEIGHT, 'WEIGHT_DECAY':WEIGHT_DECAY, 'BETA':BETA, 'KD_TEMPERATURE':KD_TEMPERATURE, 'KD_ALPHA':KD_ALPHA, 'SYN_DATA':SYN_DATA, 'EMBEDDING_TRANSFORMER':EMBEDDING_TRANSFORMER, 'MODEL_WEIGHTING':MODEL_WEIGHTING, 'MODEL_WEIGHTING_TEMPERATURE':MODEL_WEIGHTING_TEMPERATURE, 'PROMPTING':PROMPTING, 'FEW_SHOT_K':FEW_SHOT_K, 'FEW_SHOT_SAMPLE_POOL_FOR_EACH':FEW_SHOT_SAMPLE_POOL_FOR_EACH, 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO':FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO, 'SEED':SEED, 'TRAIN_METHOD':"WA_MEAN"}
+                        row_data_0 = {'STM':MODEL, 'TASK':TASK, 'NUM_PLM':NUM_PLM, 'NK':NK, 'PLM_NAME':PLM_NAME, 'TOTAL_NK':TOTAL_NK, 'GOLD_NUM':GOLD_NUM, 'GOLD_NUM':GOLD_NUM, 'GOLD_PARTY':GOLD_PARTY, 'GOLD_DISTRIBUTE':GOLD_DISTRIBUTE, 'GOLD_DIRICHLET':GOLD_DIRICHLET, 'ONLY_GOLD': ONLY_GOLD, 'INIT_SAMPLE_COUNT':INIT_SAMPLE_COUNT, 'STEPS_COUNT':STEPS_COUNT, 'SAMPLE_COUNT_PER_STEP':SAMPLE_COUNT, 'SAMPLE_SELECTION':SAMPLE_SELECTION, 'INHERIT_WEIGHT':INHERIT_WEIGHT, 'WEIGHT_DECAY':WEIGHT_DECAY, 'BETA':BETA, 'KD_TEMPERATURE':KD_TEMPERATURE, 'KD_ALPHA':KD_ALPHA, 'SYN_DATA':SYN_DATA, 'EMBEDDING_TRANSFORMER':EMBEDDING_TRANSFORMER, 'MODEL_WEIGHTING':MODEL_WEIGHTING, 'MODEL_WEIGHTING_TEMPERATURE':MODEL_WEIGHTING_TEMPERATURE, 'PROMPTING':PROMPTING, 'FEW_SHOT_K':FEW_SHOT_K, 'FEW_SHOT_SAMPLE_POOL_FOR_EACH':FEW_SHOT_SAMPLE_POOL_FOR_EACH, 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO':FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO, 'SEED':SEED, 'TRAIN_METHOD':"vanilla"}
+                        row_data_1 = {'STM':MODEL, 'TASK':TASK, 'NUM_PLM':NUM_PLM, 'NK':NK, 'PLM_NAME':PLM_NAME, 'TOTAL_NK':TOTAL_NK, 'GOLD_NUM':GOLD_NUM, 'GOLD_NUM':GOLD_NUM, 'GOLD_PARTY':GOLD_PARTY, 'GOLD_DISTRIBUTE':GOLD_DISTRIBUTE, 'GOLD_DIRICHLET':GOLD_DIRICHLET, 'ONLY_GOLD': ONLY_GOLD, 'INIT_SAMPLE_COUNT':INIT_SAMPLE_COUNT, 'STEPS_COUNT':STEPS_COUNT, 'SAMPLE_COUNT_PER_STEP':SAMPLE_COUNT, 'SAMPLE_SELECTION':SAMPLE_SELECTION, 'INHERIT_WEIGHT':INHERIT_WEIGHT, 'WEIGHT_DECAY':WEIGHT_DECAY, 'BETA':BETA, 'KD_TEMPERATURE':KD_TEMPERATURE, 'KD_ALPHA':KD_ALPHA, 'SYN_DATA':SYN_DATA, 'EMBEDDING_TRANSFORMER':EMBEDDING_TRANSFORMER, 'MODEL_WEIGHTING':MODEL_WEIGHTING, 'MODEL_WEIGHTING_TEMPERATURE':MODEL_WEIGHTING_TEMPERATURE, 'PROMPTING':PROMPTING, 'FEW_SHOT_K':FEW_SHOT_K, 'FEW_SHOT_SAMPLE_POOL_FOR_EACH':FEW_SHOT_SAMPLE_POOL_FOR_EACH, 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO':FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO, 'SEED':SEED, 'TRAIN_METHOD':"WA"}
+                        row_data_2 = {'STM':MODEL, 'TASK':TASK, 'NUM_PLM':NUM_PLM, 'NK':NK, 'PLM_NAME':PLM_NAME, 'TOTAL_NK':TOTAL_NK, 'GOLD_NUM':GOLD_NUM, 'GOLD_NUM':GOLD_NUM, 'GOLD_PARTY':GOLD_PARTY, 'GOLD_DISTRIBUTE':GOLD_DISTRIBUTE, 'GOLD_DIRICHLET':GOLD_DIRICHLET, 'ONLY_GOLD': ONLY_GOLD, 'INIT_SAMPLE_COUNT':INIT_SAMPLE_COUNT, 'STEPS_COUNT':STEPS_COUNT, 'SAMPLE_COUNT_PER_STEP':SAMPLE_COUNT, 'SAMPLE_SELECTION':SAMPLE_SELECTION, 'INHERIT_WEIGHT':INHERIT_WEIGHT, 'WEIGHT_DECAY':WEIGHT_DECAY, 'BETA':BETA, 'KD_TEMPERATURE':KD_TEMPERATURE, 'KD_ALPHA':KD_ALPHA, 'SYN_DATA':SYN_DATA, 'EMBEDDING_TRANSFORMER':EMBEDDING_TRANSFORMER, 'MODEL_WEIGHTING':MODEL_WEIGHTING, 'MODEL_WEIGHTING_TEMPERATURE':MODEL_WEIGHTING_TEMPERATURE, 'PROMPTING':PROMPTING, 'FEW_SHOT_K':FEW_SHOT_K, 'FEW_SHOT_SAMPLE_POOL_FOR_EACH':FEW_SHOT_SAMPLE_POOL_FOR_EACH, 'FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO':FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO, 'SEED':SEED, 'TRAIN_METHOD':"WA_MEAN"}
                         
                         # for plm_name in PLM_NAME:
                         #     row_data_0[plm_name] = test_acc_result["first"][plm_name]

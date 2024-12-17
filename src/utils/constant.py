@@ -878,11 +878,163 @@ FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD = {
                 "counter_labels": ["1"]
             },
             "1": {
-                "instruction": "{}\nBased on the above examples of bad and good movie reviews in negative sentiment, analyze the differences between the bad and good reviews. Generate a new negative movie review that is diverse in expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining the positive sentiment and clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new negatvie movie review is: \"",
+                "instruction": "{}\nBased on the above examples of bad and good movie reviews in negative sentiment, analyze the differences between the bad and good reviews. Generate a new negative movie review that is diverse in expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining the negative sentiment and clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new negatvie movie review is: \"",
                 "counter_labels": ["0"]
             }
         }
     },
+    'yelpCategory': {
+        "task_name": "yelpCategory",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Arts & Entertainment', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Arts & Entertainment' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Arts & Entertainment' is: \"",
+                "counter_labels": ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+            },
+            "1": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Bars', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Bars' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Bars' is: \"",
+                "counter_labels": ["0", "2", "3", "4", "5", "6", "7", "8", "9"]
+            },
+            "2": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Beauty & Spas', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Beauty & Spas' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Beauty & Spas' is: \"",
+                "counter_labels": ["0", "1", "3", "4", "5", "6", "7", "8", "9"]
+            },
+            "3": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Event Planning & Services', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Event Planning & Services' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Event Planning & Services' is: \"",
+                "counter_labels": ["0", "1", "2", "4", "5", "6", "7", "8", "9"]
+            },
+            "4": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Grocery', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Grocery' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Grocery' is: \"",
+                "counter_labels": ["0", "1", "2", "3", "5", "6", "7", "8", "9"]
+            },
+            "5": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Health & Medical', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Health & Medical' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Health & Medical' is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "6", "7", "8", "9"]
+            },
+            "6": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Home & Garden', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Home & Garden' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Home & Garden' is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "7", "8", "9"]
+            },
+            "7": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Hotels & Travel', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Hotels & Travel' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Hotels & Travel' is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "8", "9"]
+            },
+            "8": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Restaurants', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Restaurants' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Restaurants' is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "9"]
+            },
+            "9": {
+                "instruction": "{}\nBased on the above examples of bad and good movie business reviews belonging to the cateogry of 'Shopping', analyze the differences between the bad and good reviews. Generate a new review for a business item also in the field of 'Shopping' with rating {} star(s) but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review in the field of 'Shopping' is: \"",
+                "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8"]
+            },
+        }
+    },
+    'yelpRating': {
+        "task_name": "yelpRating",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above examples of bad and good business reviews with rating 1.0 star(s), analyze the differences between the bad and good reviews. Generate a new review for a business item in the field of {} also with rating 1.0 star(s) but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review with rating 1.0 star(s) is: \"",
+                "counter_labels": ["1", "2", "3", "4"]
+            },
+            "1": {
+                "instruction": "{}\nBased on the above examples of bad and good business reviews with rating 2.0 star(s), analyze the differences between the bad and good reviews. Generate a new review for a business item in the field of {} also with rating 2.0 star(s) but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review with rating 2.0 star(s) is: \"",
+                "counter_labels": ["0", "2", "3", "4"]
+            },
+            "2": {
+                "instruction": "{}\nBased on the above examples of bad and good business reviews with rating 3.0 star(s), analyze the differences between the bad and good reviews. Generate a new review for a business item in the field of {} also with rating 3.0 star(s) but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review with rating 3.0 star(s) is: \"",
+                "counter_labels": ["0", "1", "3", "4"]
+            },
+            "3": {
+                "instruction": "{}\nBased on the above examples of bad and good business reviews with rating 4.0 star(s), analyze the differences between the bad and good reviews. Generate a new review for a business item in the field of {} also with rating 4.0 star(s) but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review with rating 4.0 star(s) is: \"",
+                "counter_labels": ["0", "1", "2", "4"]
+            },
+            "4": {
+                "instruction": "{}\nBased on the above examples of bad and good business reviews with rating 5.0 star(s), analyze the differences between the bad and good reviews. Generate a new review for a business item in the field of {} also with rating 5.0 star(s) but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new buiness review with rating 5.0 star(s) is: \"",
+                "counter_labels": ["0", "1", "2", "3"]
+            }
+        }
+    },
+    'openreviewCategory': {
+        "task_name": "openreviewCategory",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Applications (eg, speech processing, computer vision, NLP)', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Applications (eg, speech processing, computer vision, NLP)' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Applications (eg, speech processing, computer vision, NLP)' is: \"",
+                # "counter_labels": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "1": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Deep Learning and representational learning', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Deep Learning and representational learning' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Deep Learning and representational learning' is: \"",
+                # "counter_labels": ["0", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "2": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'General Machine Learning', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'General Machine Learning' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'General Machine Learning' is: \"",
+                # "counter_labels": ["0", "1", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "3": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Generative models', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Generative models' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Generative models' is: \"",
+                # "counter_labels": ["0", "1", "2", "4", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "4": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Machine Learning for Sciences (eg biology, physics, health sciences, social sciences, climate/sustainability )', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Machine Learning for Sciences (eg biology, physics, health sciences, social sciences, climate/sustainability )' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Machine Learning for Sciences (eg biology, physics, health sciences, social sciences, climate/sustainability )' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "5", "6", "7", "8", "9", "10", "11"]
+            },
+            "5": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Neuroscience and Cognitive Science (e.g., neural coding, brain-computer interfaces)', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Neuroscience and Cognitive Science (e.g., neural coding, brain-computer interfaces)' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Neuroscience and Cognitive Science (e.g., neural coding, brain-computer interfaces)' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "6", "7", "8", "9", "10", "11"]
+            },
+            "6": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Optimization (eg, convex and non-convex optimization)', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Optimization (eg, convex and non-convex optimization)' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Optimization (eg, convex and non-convex optimization)' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "7", "8", "9", "10", "11"]
+            },
+            "7": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Probabilistic Methods (eg, variational inference, causal inference, Gaussian processes)', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Probabilistic Methods (eg, variational inference, causal inference, Gaussian processes)' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Probabilistic Methods (eg, variational inference, causal inference, Gaussian processes)' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "8", "9", "10", "11"]
+            },
+            "8": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Reinforcement Learning (eg, decision and control, planning, hierarchical RL, robotics)', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Reinforcement Learning (eg, decision and control, planning, hierarchical RL, robotics)' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Reinforcement Learning (eg, decision and control, planning, hierarchical RL, robotics)' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "9", "10", "11"]
+            },
+            "9": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Social Aspects of Machine Learning (eg, AI safety, fairness, privacy, interpretability, human-AI interaction, ethics)', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Social Aspects of Machine Learning (eg, AI safety, fairness, privacy, interpretability, human-AI interaction, ethics)' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Social Aspects of Machine Learning (eg, AI safety, fairness, privacy, interpretability, human-AI interaction, ethics)' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "10", "11"]
+            },
+            "10": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Theory (eg, control theory, learning theory, algorithmic game theory)', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Theory (eg, control theory, learning theory, algorithmic game theory)' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Theory (eg, control theory, learning theory, algorithmic game theory)' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "11"]
+            },
+            "11": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of paper in the area 'Unsupervised and Self-supervised learning', analyze the differences between the bad and good reviews. Generate a new reviewe for a paper also in the area of 'Unsupervised and Self-supervised learning' with final recommendation: '{}' but diverse in the expression compared to the given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review in the area 'Unsupervised and Self-supervised learning' is: \"",
+                # "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+            },
+        }
+    },
+    'openreviewRating': {
+        "task_name": "openreviewRating",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of final recommendation: '1: strong reject', analyze the differences between the bad and good reviews. Generate a new review for a paper in the field of '{}' also with final recommendation: '1: strong reject' but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review of final recommendation: '1: strong reject' is: \"",
+                # "counter_labels": ["1", "2", "3", "4"]
+            },
+            "1": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of final recommendation: '3: reject, not good enough', analyze the differences between the bad and good reviews. Generate a new review for a paper in the field of '{}' also with final recommendation: '3: reject, not good enough' but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review of final recommendation: '3: reject, not good enough' is: \"",
+                # "counter_labels": ["0", "2", "3", "4"]
+            },
+            "2": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of final recommendation: '5: marginally below the acceptance threshold', analyze the differences between the bad and good reviews. Generate a new review for a paper in the field of '{}' also with final recommendation: '5: marginally below the acceptance threshold' but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review final recommendation: '5: marginally below the acceptance threshold' is: \"",
+                # "counter_labels": ["0", "1", "3", "4"]
+            },
+            "3": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of final recommendation: '6: marginally above the acceptance threshold', analyze the differences between the bad and good reviews. Generate a new review for a paper in the field of '{}' also with final recommendation: '6: marginally above the acceptance threshold' but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review final recommendation: '6: marginally above the acceptance threshold' is: \"",
+                # "counter_labels": ["0", "1", "2", "4"]
+            },
+            "4": {
+                "instruction": "{}\nBased on the above examples of bad and good paper reviews of final recommendation: '8: accept, good paper', analyze the differences between the bad and good reviews. Generate a new review for a paper in the field of '{}' also with final recommendation: '8: accept, good paper' but diverse in the expression compared to the above given good reviews. Ensure that the new review is further refined than the good reviews while maintaining clarity, making the good reviews appear to lie midway between the new review and the bad reviews. The new paper review final recommendation: '8: accept, good paper' is: \"",
+                # "counter_labels": ["0", "1", "2", "3"]
+            },
+        }
+    }
 }
 
 FEW_SHOT_PROMPT_PER_CLASS = {
@@ -905,43 +1057,43 @@ FEW_SHOT_PROMPT_PER_CLASS = {
         "stage": "x2",
         "labels": {
             "0": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Arts & Entertainment, a new review for a business item also in the field of Arts & Entertainment with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Arts & Entertainment', a new review for a business item also in the field of 'Arts & Entertainment' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
             },
             "1": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Bars, a new review for a business item also in the field of Bars with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Bars', a new review for a business item also in the field of 'Bars' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "2", "3", "4", "5", "6", "7", "8", "9"]
             },
             "2": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Beauty & Spas, a new review for a business item also in the field of Beauty & Spas with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Beauty & Spas', a new review for a business item also in the field of 'Beauty & Spas' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "3", "4", "5", "6", "7", "8", "9"]
             },
             "3": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Event Planning & Services, a new review for a business item also in the field of Event Planning & Services with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Event Planning & Services', a new review for a business item also in the field of Event 'Planning & Services' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "4", "5", "6", "7", "8", "9"]
             },
             "4": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Grocery, a new review for a business item also in the field of Grocery with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Grocery', a new review for a business item also in the field of 'Grocery' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "3", "5", "6", "7", "8", "9"]
             },
             "5": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Health & Medical, a new review for a business item also in the field of Health & Medical with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Health & Medical', a new review for a business item also in the field of 'Health & Medical' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "3", "4", "6", "7", "8", "9"]
             },
             "6": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Home & Garden, a new review for a business item also in the field of Home & Garden with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Home & Garden', a new review for a business item also in the field of 'Home & Garden' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "3", "4", "5", "7", "8", "9"]
             },
             "7": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Hotels & Travel, a new review for a business item also in the field of Hotels & Travel with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Hotels & Travel', a new review for a business item also in the field of 'Hotels & Travel' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "8", "9"]
             },
             "8": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Restaurants, a new review for a business item also in the field of Restaurants with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Restaurants', a new review for a business item also in the field of 'Restaurants' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "9"]
             },
             "9": {
-                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of Shopping, a new review for a business item also in the field of Shopping with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
+                "instruction": "{}\nBased on the above business reviews belonging to the cateogry of 'Shopping', a new review for a business item also in the field of 'Shopping' with rating {} star(s) but diverse in the expression compared to the above given samples is: \"",
                 "counter_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8"]
             },
         }
