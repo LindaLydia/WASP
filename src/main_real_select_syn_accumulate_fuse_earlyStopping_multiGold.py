@@ -2978,7 +2978,8 @@ if __name__ == "__main__":
     parser.add_argument("--sentence_transformer", type=str, default='sentence-t5-base', help="the specified sentence transformer for embedding the input sample, set to 'none' if the STM is desired") #,'influenceCartography'
     parser.add_argument("--voting_range", type=str, default='all', help="find nearest synthetic sample within all the syn samples or within the same class, ['all', 'class']") 
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")
-    parser.add_argument("--voting_dp_sigma", type=float, default=2.177888886, help="the level of noise for DP protection of the histogram for each party")
+    parser.add_argument("--voting_dp_epsilon", type=float, default=1.0, help="[1,2,4,inf(>=10000.0)], (epsilon, delta)-DP protection of the histogram for each party, noise level of gaussian is calculated accordingly")
+    # parser.add_argument("--voting_dp_sigma", type=float, default=3.93771533777, help="the level of noise for DP protection of the histogram for each party")
     parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") 
     parser.add_argument("--unbalance_generation_temperature", type=float, default=1.0, help="temperature for soften the number of synthetic samples for generation for each PLM")
     parser.add_argument("--voted_sample_select", type=str, default='top', help="the method of getting samples from the voting result, including using the top and histogram-based-random-sampling as ['top', 'sampling', ...]") #,'influenceCartography'
@@ -3067,6 +3068,16 @@ if __name__ == "__main__":
         assert args.gold_party_num >= 0, "[ERROR] --gold_party_num is not set"
         # args.gold_party_num = args.num_classes
         args.gold_split_dirichlet = 0.0
+    
+    args.function_sensitivity = 2
+    args.voting_dp_delta = 1E-5
+    if args.voting_dp_epsilon >= 1E5:
+        # treate it as infinity
+        args.voting_dp_sigma = 0.0
+    else:
+        # calculate N(0,sigma) using Theorem 1 from Balle&Wang(ICLM2018, Improving the Gaussian Mechanism for Differential Privacy: Analytical Calibration and Optimal Denoising)
+        args.voting_dp_sigma = args.function_sensitivity * np.sqrt(2*np.log(1.25/args.voting_dp_delta)) * np.sqrt(args.steps*args.gold_party_num) / args.voting_dp_epsilon
+    print(f"({args.dp_voting_epsilon},{args.voting_dp_delta})-DP of {args.gold_party_num} collaborative data party with Gaussian noise following N(0,{args.voting_dp_sigma})")
 
     print(f"learning rate: {args.inner_lr}")
     print(f"seed: {args.seed}")
@@ -3108,6 +3119,8 @@ if __name__ == "__main__":
     args.result_file_path = f'./results/multiGold_eval_on_real/with_real_few_shot_accumulate_voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.small_model_name}/{args.sentence_transformer}/{args.train_ratio}_{args.weight_adjust_criterial}_{args.fuse_dataset_weight}_{args.fuse_dataset_sample_selection}_{args.kd_aggregate_weight}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/{args.kd_alpha}_{args.kd_temperature}_init{args.num_use_samples_init[0]}_steps{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.model_name_sample}/{args.seed}/'
     if not os.path.exists(args.result_file_path):
         os.makedirs(args.result_file_path)
+
+    logging.info(f"({args.dp_voting_epsilon},{args.voting_dp_delta})-DP with Gaussian noise following N(0,{args.voting_dp_sigma})")
 
     if args.steps == 0:
         args.sample_each_llm = args.num_use_samples_inner

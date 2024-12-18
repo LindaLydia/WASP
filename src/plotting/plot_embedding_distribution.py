@@ -597,10 +597,10 @@ def plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embedding
     # plt.ylabel('Dimension 2')
     # plt.legend()
     plt.tight_layout()
-    if not os.path.exists('./figure/distribution/2D/'):
-        os.makedirs('./figure/distribution/2D/')
-    print(f'./figure/distribution/2D/{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png')
-    plt.savefig(f'./figure/distribution/2D/{save_type}_{"with" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png',dpi=200)
+    if not os.path.exists(f'./figure/distribution/2D/{args.folder_name}/'):
+        os.makedirs(f'./figure/distribution/2D/{args.folder_name}/')
+    print(f'./figure/distribution/2D/{args.folder_name}/{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test_withLabel.png')
+    plt.savefig(f'./figure/distribution/2D/{args.folder_name}/{save_type}_{"with" if args.consider_real else "without"}test_withLabel.png',dpi=200)
 
     for i_step in range(1,args.steps+1):
         plt.clf()
@@ -635,10 +635,10 @@ def plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embedding
         # plt.ylabel('Dimension 2')
         # plt.legend()
         plt.tight_layout()
-        if not os.path.exists('./figure/distribution/2D/'):
-            os.makedirs('./figure/distribution/2D/')
-        print(f'./figure/distribution/2D/step{i_step}_{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png')
-        plt.savefig(f'./figure/distribution/2D/step{i_step}_{save_type}_{"with" if args.consider_real else "without"}test_withLabel_{args.model_name_sample}.png',dpi=200)
+        if not os.path.exists(f'./figure/distribution/2D/{args.folder_name}/'):
+            os.makedirs(f'./figure/distribution/2D/{args.folder_name}/')
+        print(f'./figure/distribution/2D/{args.folder_name}/step{i_step}_{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test_withLabel.png')
+        plt.savefig(f'./figure/distribution/2D/{args.folder_name}/step{i_step}_{save_type}_{"with" if args.consider_real else "without"}test_withLabel.png',dpi=200)
 
 
     # # Plot the 2D scatter plot, with test dataset, consider label
@@ -914,7 +914,7 @@ def calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label
                 cos_distances = cdist(temp_embeddings, real_embeddings, metric='cosine')
                 total_l2[int(i_step-1)][i] = l2_distances.sum()/l2_distances.size
                 total_cos[int(i_step-1)][i] = cos_distances.sum()/cos_distances.size
-                print(f"{l2_distances=}, {cos_distances=}, {total_l2[int(i_step-1)][i]=}, {total_cos[int(i_step-1)][i]=}")
+                # print(f"{l2_distances=}, {cos_distances=}, {total_l2[int(i_step-1)][i]=}, {total_cos[int(i_step-1)][i]=}")
                 # ############# total_kl calculation #############
                 
                 # ############# within_class_kl calculation #############
@@ -992,7 +992,7 @@ def calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_la
                 # print(type(temp_embeddings), type(real_embeddings))
                 fid_value = calculate_fid(temp_embeddings, real_embeddings)
                 total_fid[int(i_step-1)][i] = fid_value.sum()/fid_value.size
-                print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
+                # print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
                 # ############# total_fid calculation #############
                 
                 # ############# within_class_fid calculation #############
@@ -1039,8 +1039,9 @@ def calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, 
                         # _index = (labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]==label)
                         # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))][_index]
                         _previous_step_obtain = args.step_sample_count[i_step-2][i] if i_step > 1 else 0
-                        _index = (labels[args.accumulate_sampels[-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-2][i]]==label)
-                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-2][i]][_index]
+                        # print(f"LLM#{i}, step={i_step}, start={args.accumulate_sampels[-1][i]+_previous_step_obtain}, end={args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]}, {args.accumulate_sampels[-1][i]=}, {_previous_step_obtain=}, {args.step_sample_count[i_step-1][i]=}")
+                        _index = (labels[args.accumulate_sampels[-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]==label)
+                        _embeddings_of_this_label = embeddings[args.accumulate_sampels[-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]][_index]
                     else:
                         # _index = (labels[args.accumulate_sampels[i]:]==label)
                         # _embeddings_of_this_label = embeddings[args.accumulate_sampels[i]:][_index]
@@ -1061,13 +1062,13 @@ def calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, 
                 # temp_embeddings = embeddings[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
                 # temp_labels = labels[args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*((i_step-1)/(args.steps+1))):args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
                 _previous_step_obtain = args.step_sample_count[i_step-2][i] if i_step > 1 else 0
-                temp_embeddings = embeddings[args.accumulate_sampels[i_step-1][i]+_previous_step_obtain:args.accumulate_sampels[i_step-1][i+1], :]
-                temp_labels = labels[args.accumulate_sampels[i_step-1][i]+_previous_step_obtain:args.accumulate_sampels[i_step-1][i+1]]
+                temp_embeddings = embeddings[args.accumulate_sampels[i_step-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :]
+                temp_labels = labels[args.accumulate_sampels[i_step-1][i]+_previous_step_obtain:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]
                 # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
                 # print(type(temp_embeddings), type(real_embeddings))
                 fid_value = calculate_fid(temp_embeddings, real_embeddings)
                 total_fid[int(i_step-1)][i] = fid_value.sum()/fid_value.size
-                print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
+                # print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
                 # ############# total_fid calculation #############
                 
                 # ############# within_class_fid calculation #############
@@ -1082,7 +1083,7 @@ def calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, 
                             unique_label_counter += 1
                             fid_value = calculate_fid(embeddings_label[i][unique_label], embeddings_label[-1][unique_label])
                             within_class_fid[int(i_step-1)][i] += fid_value.sum()/fid_value.size
-                            print(f"{fid_value=}, {within_class_fid[int(i_step-1)][i]=}")
+                            # print(f"{fid_value=}, {within_class_fid[int(i_step-1)][i]=}")
                     if within_class_fid[int(i_step-1)][i] != float('inf'):
                         within_class_fid[int(i_step-1)][i] = within_class_fid[int(i_step-1)][i] / unique_label_counter
                 # ############# within_class_kl calculation #############
@@ -1116,10 +1117,10 @@ def calculate_and_save_tsne(args):
     
     tsne = TSNE(n_components=2, random_state=42)
     embeddings_2d = tsne.fit_transform(embeddings)
-    if not os.path.exists('./figure/distribution/embeddings/'):
-        os.makedirs('./figure/distribution/embeddings/')
-    # np.savez(f'./figure/distribution/embeddings/{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels)
-    np.savez(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels) # currently without test
+    if not os.path.exists(f'./figure/distribution/embeddings/{args.folder_name}/'):
+        os.makedirs(f'./figure/distribution/embeddings/{args.folder_name}/')
+    # np.savez(f'./figure/distribution/embeddings/{args.folder_name}/{args.model_name_sample}.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels)
+    np.savez(f'./figure/distribution/embeddings/{args.folder_name}/{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz', embeddings_2d=embeddings_2d, embeddings=embeddings, labels=labels) # currently without test
     
     # # data = np.load(f'./figure/distribution/embeddings/{args.model_name_sample}.npz')
     # data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}.npz')
@@ -1204,6 +1205,7 @@ if __name__ == "__main__":
     args.model_name_sample = f'{args.task_name}___{args.llms[0]}_{args.num_use_samples_inner[0]}'
     for _model, num_samples_inner in zip(args.llms[1:], args.num_use_samples_inner[1:]):
         args.model_name_sample += f'__{_model}_{num_samples_inner}'
+    args.folder_name = f"{args.syn_data_path.split('/')[2]}/{args.model_name_sample}"
 
     print(f"{args.syn_data_path=}")
     if args.syn_data_path != None:
@@ -1218,7 +1220,7 @@ if __name__ == "__main__":
 
     # assert 1 == 0
 
-    data = np.load(f'./figure/distribution/embeddings/{save_type}_{args.model_name_sample}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz')
+    data = np.load(f'./figure/distribution/embeddings/{args.folder_name}/{save_type}_{f"with{args.gold_data_num}" if args.consider_real else "without"}test.npz')
     # data = np.load(f'./figure/distribution/embeddings/withoutest_{args.model_name_sample}.npz')
     # data = np.load(f'./figure/distribution/temp.npz')
     embeddings_2d = data['embeddings_2d']

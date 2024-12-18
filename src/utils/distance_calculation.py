@@ -345,7 +345,7 @@ def find_nearest_syn_samples_multi_data_party(args, train_data, gold_loader, cou
 
 
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
-    SIGMA = args.voting_dp_sigma / 100
+    SIGMA = args.voting_dp_sigma
     nearest_sample_voting_per_party = np.asarray(nearest_sample_voting_per_party)
     print(f"before noise adding {np.max(nearest_sample_voting_per_party)=}, {np.min(nearest_sample_voting_per_party)=}, {np.count_nonzero(nearest_sample_voting_per_party)=}")
     torch.save((nearest_sample_voting_per_party), f"{args.result_file_path}/{len(train_data)}_voting_per_party_before_dp.pth")
@@ -500,7 +500,7 @@ def find_nearest_syn_samples_multi_data_party_byClass(args, train_data, gold_loa
 
 
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
-    SIGMA = args.voting_dp_sigma / 100
+    SIGMA = args.voting_dp_sigma
     # ### #
     nearest_sample_voting_per_party = np.asarray(nearest_sample_voting_per_party)
     for i_party in range(len(nearest_sample_voting_per_party)):
@@ -760,7 +760,7 @@ def find_nearest_syn_samples_within_and_outside_class(args, train_data, gold_loa
     torch.save((nearest_sample_voting_per_party, nearest_other_class_sample_voting_per_party), f"{args.result_file_path}/real_vote_for_syn_within_and_outside_{local_accumulate_samples}.pth") 
 
     # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
-    SIGMA = args.voting_dp_sigma / 100
+    SIGMA = args.voting_dp_sigma
     nearest_sample_voting_per_party = np.asarray(nearest_sample_voting_per_party)
     for i_party in range(len(nearest_sample_voting_per_party)):
         nearest_sample_voting_per_party[i_party] += np.random.standard_normal(size=nearest_sample_voting_per_party[i_party].shape)*SIGMA
