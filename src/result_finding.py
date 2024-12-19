@@ -670,7 +670,7 @@ def get_accumualte_results_in_iter():
                                 FEW_SHOT_SAMPLE_AMBIGUOUS_RATIO = float(fewshot_hyper_parameters[2])
 
 
-                    FUSE_NAME_columns = []
+                    FUSE_NAME_columns = ['fedAVG', 'fedAVG_v2', 'all-one-hot']
                     # step_counter = [-1] * (len(PLM_NAME)+1) # count for each PLM's syn-data and total syn-data
                     step_counter = -1
                     last_total_sample = 0
@@ -913,15 +913,19 @@ def get_accumualte_results_in_iter():
                                 row_data_2[plm_name] = -2
                         
                         for FUSE_NAME in FUSE_NAME_columns:
-                            if FUSE_NAME != 'all-one-hot':
-                                row_data_0[FUSE_NAME] = test_acc_result["first"][FUSE_NAME]
-                                row_data_1[FUSE_NAME] = test_acc_result["max"][FUSE_NAME]
-                                row_data_2[FUSE_NAME] = np.mean(test_acc_result["trajectory"][FUSE_NAME], axis=-1)
-                            else:
-                                for i_step in range(STEPS_COUNT+1):
-                                    row_data_0[FUSE_NAME+f'_step{i_step}'] = test_acc_result["first"][FUSE_NAME][i_step]
-                                    row_data_1[FUSE_NAME+f'_step{i_step}'] = test_acc_result["max"][FUSE_NAME][i_step]
-                                    row_data_2[FUSE_NAME+f'_step{i_step}'] = np.mean(test_acc_result["trajectory"][FUSE_NAME][i_step], axis=-1)
+                            # if FUSE_NAME != 'all-one-hot':
+                            #     row_data_0[FUSE_NAME] = test_acc_result["first"][FUSE_NAME]
+                            #     row_data_1[FUSE_NAME] = test_acc_result["max"][FUSE_NAME]
+                            #     row_data_2[FUSE_NAME] = np.mean(test_acc_result["trajectory"][FUSE_NAME], axis=-1)
+                            # else:
+                            #     for i_step in range(STEPS_COUNT+1):
+                            #         row_data_0[FUSE_NAME+f'_step{i_step}'] = test_acc_result["first"][FUSE_NAME][i_step]
+                            #         row_data_1[FUSE_NAME+f'_step{i_step}'] = test_acc_result["max"][FUSE_NAME][i_step]
+                            #         row_data_2[FUSE_NAME+f'_step{i_step}'] = np.mean(test_acc_result["trajectory"][FUSE_NAME][i_step], axis=-1)
+                            for i_step in range(STEPS_COUNT+1):
+                                row_data_0[FUSE_NAME+f'_step{i_step}'] = test_acc_result["first"][FUSE_NAME][i_step]
+                                row_data_1[FUSE_NAME+f'_step{i_step}'] = test_acc_result["max"][FUSE_NAME][i_step]
+                                row_data_2[FUSE_NAME+f'_step{i_step}'] = np.mean(test_acc_result["trajectory"][FUSE_NAME][i_step], axis=-1)
 
                         if NUM_PLM == 1:
                             df_1.loc[len(df_1)] = row_data_0
