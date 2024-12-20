@@ -62,6 +62,131 @@ def postprocess_dataset_gpt(dataset: List[Dict], generate_with_inputs: bool, tas
     return postprocessed_dataset
 
 
+
+def GPT_generation(args, inputs):
+
+    #Azure
+    apitoken = "074471813785467583b2873ac1f293fc"
+    # # 定义你的 POST 数据  
+    # data = {  
+    #     "messages": [{"role": "user", "content": "who are you"}]
+    # }  
+
+    # url = 'https://api.openai.com/v1/chat/completions'
+    url = {
+        'gpt-4o': 'https://yjzl-openai-xy-swd.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2023-12-01-preview',
+        'gpt-4-turbo-preview': 'https://yjzl-openai-xy-swd.openai.azure.com/openai/deployments/gpt-4-turbo/chat/completions?api-version=2023-12-01-preview',
+        'gpt-3.5-turbo-instruct': 'https://yjzl-openai-xy-swd.openai.azure.com/openai/deployments/gpt-35-turbo/chat/completions?api-version=2023-12-01-preview'
+    }
+
+    # 发送 POST 请求  
+    headers = {  
+        #'Authorization': 'Bearer ' + apitoken,  
+        'api-key': apitoken,
+        'Content-Type': 'application/json'  
+    }
+
+    prompts = args.task_specification["labels"]
+    log_every = args.gen_log_every
+    task_name = args.task_name
+    model = args.gen_model_name
+
+    _idx = 0
+    input_idx = 0
+    outputs = []
+    for key in prompts.keys():
+        for _i in range((int(args.gen_num_entries_per_input*1.5))//2):
+            label = int(key)
+            # if label == 0:
+            #     continue
+            gen_prompt = prompts[key]["instruction"]
+            if 'nli' in args.task_name:
+                gen_prompt = gen_prompt.replace(PLACEHOLDER_C, inputs[input_idx])
+            if 'gpt-4' in model or 'gpt-3.5-turbo-0125' in model:
+                data = {
+                    "messages": [{
+                        "role": "user", 
+                        "content": f"{gen_prompt}",
+                    }],
+                    "max_tokens": args.gen_max_length,
+                    "temperature": 1.0,
+                    "top_p": 0.9
+                }
+                response = requests.post(url[args.gen_model_name], json=data, headers=headers)  
+                # {'choices': [{'content_filter_results': {'hate': {'filtered': False, 'severity': 'safe'}, 
+                #                                          'self_harm': {'filtered': False, 'severity': 'safe'}, 
+                #                                          'sexual': {'filtered': False, 'severity': 'safe'}, 
+                #                                          'violence': {'filtered': False, 'severity': 'safe'}}, 
+                #               'finish_reason': 'stop', 
+                #               'index': 0, 
+                #               'message': {
+                #                   'content': 'I am an artificial intelligence language model created by OpenAI, known as ChatGPT. My purpose is to assist with answering questions, providing information, and engaging in conversations across a wide range of topics. How can I assist you today?', 
+                #                   'role': 'assistant'
+                #                   }
+                #             }], 
+                #  'created': 1734663434, 
+                #  'id': 'chatcmpl-AgNUQNue5YPMG3TM3bDLsW7KjJLY8', 
+                #  'model': 'gpt-4o-2024-05-13', 
+                #  'object': 'chat.completion', 
+                #  'prompt_filter_results': [{'prompt_index': 0, 
+                #                             'content_filter_results': {
+                #                                 'hate': {'filtered': False, 'severity': 'safe'}, 
+                #                                 'jailbreak': {'filtered': False, 'detected': False}, 
+                #                                 'self_harm': {'filtered': False, 'severity': 'safe'}, 
+                #                                 'sexual': {'filtered': False, 'severity': 'safe'}, 
+                #                                 'violence': {'filtered': False, 'severity': 'safe'}
+                #                             }
+                #                           }], 
+                #  'system_fingerprint': 'fp_04751d0b65', 
+                #  'usage': {'completion_tokens': 47, 'prompt_tokens': 10, 'total_tokens': 57}
+                # }
+            response_dict = eval(response.replace('null', 'None').replace('false', 'False').replace('true', 'True'))
+            input_idx += 1
+            # print(response_dict)
+
+            # 检查响应状态码并打印响应内容  
+            if response.status_code == 200:  
+                print('Request successful.')  
+                print(response.json())  # 打印返回的 JSON 数据  
+            else:  
+                print(f'Request failed with status code {response.status_code}.')  
+                print(response.text)  # 打印响应文本
+
+            try:
+                text = response_dict["choices"][0]["message"]["content"].strip().lower().replace('\n\n', '').replace('','').replace('\\','') #.replace('.','')
+                print(f'{text=}')
+            except:
+                if response.status_code == 200:
+                    print("[error] Request successful. But decoding bugged", response_dict)
+                else:
+                    print(f'Request failed with status code {response.status_code} with response text {response.text}')  
+                continue
+            
+            if text[-1] == '"':
+                text = text[:-1]
+            if text[0] == '"':
+                text = text[1:]
+            if len(text) == 0:
+                continue
+            
+            output_dict = process_output_gpt(input_text=inputs[input_idx] if (inputs is not None) else None,
+                                        output_text=text,
+                                        label=label, generate_with_inputs=(inputs is not None),
+                                        min_length=args.gen_min_length, task_name=args.task_name)
+            print(f"{output_dict=}")
+            if output_dict != None:
+                outputs.append(output_dict)
+                # writer.write(json_obj)
+                _idx += 1
+                print(f"generated: {_idx}, on going...")
+    print(f"post processing")
+    outputs = postprocess_dataset_gpt(outputs, generate_with_inputs=(inputs is not None), task_name=args.task_name)
+
+    return outputs
+
+
+
+
 def GPT_generation(args, inputs):
 
     api_key = 'sk-kJPxEb6d4osdbMwk754e6eF930534805A9Bc70E694Ae4f5f'
