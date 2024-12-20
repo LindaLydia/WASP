@@ -2866,6 +2866,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
 
                 with open(args.gen_task_file, "w") as task_file:
                     json.dump(prompt, task_file)
+                
                 # print(f"[debug] see the prompt \n*****\n{prompt}\n*****")
                 torch.cuda.empty_cache()
                 print(f'here0-7, {torch.cuda.memory_reserved()/1024/1024=}M, {torch.cuda.memory_allocated()/1024/1024=}M')
@@ -3071,13 +3072,13 @@ if __name__ == "__main__":
     
     args.function_sensitivity = 2
     args.voting_dp_delta = 1E-5
-    if args.voting_dp_epsilon >= 1E5:
+    if args.voting_dp_epsilon >= (1E5)-(1E-5):
         # treate it as infinity
         args.voting_dp_sigma = 0.0
     else:
         # calculate N(0,sigma) using Theorem 1 from Balle&Wang(ICLM2018, Improving the Gaussian Mechanism for Differential Privacy: Analytical Calibration and Optimal Denoising)
-        args.voting_dp_sigma = args.function_sensitivity * np.sqrt(2*np.log(1.25/args.voting_dp_delta)) * np.sqrt(args.steps*args.gold_party_num) / args.voting_dp_epsilon
-    print(f"({args.dp_voting_epsilon},{args.voting_dp_delta})-DP of {args.gold_party_num} collaborative data party with Gaussian noise following N(0,{args.voting_dp_sigma})")
+        args.voting_dp_sigma = args.function_sensitivity * np.sqrt(2*np.log(1.25/args.voting_dp_delta)) * np.sqrt(args.steps) / (args.voting_dp_epsilon * np.sqrt(args.gold_party_num))
+    print(f"({args.voting_dp_epsilon},{args.voting_dp_delta})-DP of {args.gold_party_num} collaborative data party with Gaussian noise following N(0,{args.voting_dp_sigma})")
 
     print(f"learning rate: {args.inner_lr}")
     print(f"seed: {args.seed}")
@@ -3120,7 +3121,7 @@ if __name__ == "__main__":
     if not os.path.exists(args.result_file_path):
         os.makedirs(args.result_file_path)
 
-    logging.info(f"({args.dp_voting_epsilon},{args.voting_dp_delta})-DP with Gaussian noise following N(0,{args.voting_dp_sigma})")
+    logging.info(f"({args.voting_dp_epsilon},{args.voting_dp_delta})-DP with Gaussian noise following N(0,{args.voting_dp_sigma})")
 
     if args.steps == 0:
         args.sample_each_llm = args.num_use_samples_inner
