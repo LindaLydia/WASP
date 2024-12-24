@@ -1,6 +1,5 @@
 import base64
 import requests
-from copy import deepcopy
 import random
 import os
 from tqdm import tqdm
@@ -11,9 +10,10 @@ import json
 from requests.auth import HTTPBasicAuth
 import jsonlines
 import argparse
+import copy
 
 from utils.basic_utils import init_logging, set_seed, read_jsonl, save_jsonl, save_jsonl_append, modify_idx_in_json_file
-from utils.constant import PROMPTS
+from utils.constant import PROMPTS, ATTRIBUTE_LABELS
 from utils.cls_generator import C_KEY, X_KEY, Y_KEY, PLACEHOLDER_C, PLACEHOLDER_X
 from typing import List, Optional, Dict, Any, Union
 
@@ -91,18 +91,51 @@ def GPT_generation(args, inputs):
     task_name = args.task_name
     model = args.gen_model_name
 
+    _labels = list(args.task_specification['labels'].keys())
+    _instructions = {label: copy.deepcopy(args.task_specification['labels'][label]['instruction']) for label in _labels}
+
+
     _idx = 0
     input_idx = 0
     outputs = []
-    for key in prompts.keys():
-        for _i in range((int(args.gen_num_entries_per_input*1.5))//2):
-            label = int(key)
-            # if label == 0:
-            #     continue
-            gen_prompt = prompts[key]["instruction"]
+    # for key in prompts.keys():
+        # for _i in range((int(args.gen_num_entries_per_input*1.5))//2):
+            # label = int(key)
+    while _idx < args.gen_num_entries_per_input:
+        _instructions = {label: copy.deepcopy(args.task_specification['labels'][label]['instruction']) for label in _labels}
+        if 'Rating' in args.task_name or 'Category' in args.task_name:
+            print(f"[INFO] enumerate through diverse Category or Rating score")
+            attribute_list = ATTRIBUTE_LABELS[args.task_name]
+            for attribute in attribute_list:
+                for label in _labels:
+                    if type(_instructions[label]) == type(['list']):
+                        rand_prompt_idx = int(np.random.randint(low=0, high=len(_instructions[label]), size=1)[0])
+                        _instructions[label] = _instructions[label][rand_prompt_idx].format(attribute)
+                        print(f"{_instructions[label]=}")
+                        print(f"{type(_instructions[label])=}")
+                    elif type(_instructions[label]) == type('string'):
+                        _instructions[label] = _instructions[label].format(attribute)
+                # for label in _labels:
+                    # outputs = args._generate_dataset_entries(input_texts_or_ids, label=label,
+                    #                                         num_samples=num_entries_per_input,
+                    #                                         generate_with_inputs=generate_with_inputs)
+        else:
+            for label in _labels:
+                if type(_instructions[label]) == type(['list']):
+                    rand_prompt_idx = int(np.random.randint(low=0, high=len(_instructions[label]), size=1)[0])
+                    _instructions[label] = _instructions[label][rand_prompt_idx]
+                    print(f"<cls_generator.py> {_instructions[label]=}")
+                    print(f"<cls_generator.py> {type(_instructions[label])=}")
+            # for label in _labels:
+                # outputs = args._generate_dataset_entries(input_texts_or_ids, label=label,
+                #                                         num_samples=num_entries_per_input,
+                #                                         generate_with_inputs=generate_with_inputs)
+
+        for label in _labels:
+            gen_prompt = copy.deepcopy(_instructions[label])
             if 'nli' in args.task_name:
                 gen_prompt = gen_prompt.replace(PLACEHOLDER_C, inputs[input_idx])
-            if 'gpt-4' in model or 'gpt-3.5-turbo-0125' in model:
+            if 'gpt-4' in model or 'gpt-3.5' in model:
                 data = {
                     "messages": [{
                         "role": "user", 
@@ -112,9 +145,9 @@ def GPT_generation(args, inputs):
                     "temperature": 1.0,
                     "top_p": 0.9
                 }
-                response = requests.post(url[args.gen_model_name], json=data, headers=headers)  
+                response = requests.post(url[args.gen_model_name], json=data, headers=headers).text
                 # {'choices': [{'content_filter_results': {'hate': {'filtered': False, 'severity': 'safe'}, 
-                #                                          'self_harm': {'filtered': False, 'severity': 'safe'}, 
+                #                                          'args_harm': {'filtered': False, 'severity': 'safe'}, 
                 #                                          'sexual': {'filtered': False, 'severity': 'safe'}, 
                 #                                          'violence': {'filtered': False, 'severity': 'safe'}}, 
                 #               'finish_reason': 'stop', 
@@ -132,7 +165,7 @@ def GPT_generation(args, inputs):
                 #                             'content_filter_results': {
                 #                                 'hate': {'filtered': False, 'severity': 'safe'}, 
                 #                                 'jailbreak': {'filtered': False, 'detected': False}, 
-                #                                 'self_harm': {'filtered': False, 'severity': 'safe'}, 
+                #                                 'args_harm': {'filtered': False, 'severity': 'safe'}, 
                 #                                 'sexual': {'filtered': False, 'severity': 'safe'}, 
                 #                                 'violence': {'filtered': False, 'severity': 'safe'}
                 #                             }
@@ -140,26 +173,29 @@ def GPT_generation(args, inputs):
                 #  'system_fingerprint': 'fp_04751d0b65', 
                 #  'usage': {'completion_tokens': 47, 'prompt_tokens': 10, 'total_tokens': 57}
                 # }
+            else:
+                assert 'gpt-4' in model, f"[ERROR] None surpported LLM {model}"
             response_dict = eval(response.replace('null', 'None').replace('false', 'False').replace('true', 'True'))
             input_idx += 1
             # print(response_dict)
 
-            # 检查响应状态码并打印响应内容  
-            if response.status_code == 200:  
-                print('Request successful.')  
-                print(response.json())  # 打印返回的 JSON 数据  
-            else:  
-                print(f'Request failed with status code {response.status_code}.')  
-                print(response.text)  # 打印响应文本
+            # # 检查响应状态码并打印响应内容  
+            # if response.status_code == 200:  
+            #     print('Request successful.')  
+            #     print(response.json())  # 打印返回的 JSON 数据  
+            # else:  
+            #     print(f'Request failed with status code {response.status_code}.')  
+            #     print(response.text)  # 打印响应文本
 
             try:
                 text = response_dict["choices"][0]["message"]["content"].strip().lower().replace('\n\n', '').replace('','').replace('\\','') #.replace('.','')
                 print(f'{text=}')
             except:
-                if response.status_code == 200:
-                    print("[error] Request successful. But decoding bugged", response_dict)
-                else:
-                    print(f'Request failed with status code {response.status_code} with response text {response.text}')  
+                print(f'Request failed, {response_dict=}')
+                # if response.status_code == 200:
+                #     print("[error] Request successful. But decoding bugged", response_dict)
+                # else:
+                #     print(f'Request failed with status code {response.status_code} with response text {response.text}')  
                 continue
             
             if text[-1] == '"':
@@ -187,115 +223,115 @@ def GPT_generation(args, inputs):
 
 
 
-def GPT_generation(args, inputs):
+# def GPT_generation(args, inputs):
 
-    api_key = 'sk-kJPxEb6d4osdbMwk754e6eF930534805A9Bc70E694Ae4f5f'
-    url_gpt4 = 'https://tbnx.plus7.plus/v1/chat/completions'
-    url_completion = 'https://tbnx.plus7.plus/v1/completions'
-    # api_key = 'sk-Il27yhmXdWJkKNqJE74d280b80Cf4b3aB86fB58fA271Fd95'
-    # url_gpt4 = 'https://chat1.plus7.plus/v1/chat/completions'
-    # url_completion = 'https://chat1.plus7.plus/v1/completions'
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+#     api_key = 'sk-kJPxEb6d4osdbMwk754e6eF930534805A9Bc70E694Ae4f5f'
+#     url_gpt4 = 'https://tbnx.plus7.plus/v1/chat/completions'
+#     url_completion = 'https://tbnx.plus7.plus/v1/completions'
+#     # api_key = 'sk-Il27yhmXdWJkKNqJE74d280b80Cf4b3aB86fB58fA271Fd95'
+#     # url_gpt4 = 'https://chat1.plus7.plus/v1/chat/completions'
+#     # url_completion = 'https://chat1.plus7.plus/v1/completions'
+#     headers = {
+#         "Content-Type": "application/json",
+#         "Authorization": f"Bearer {api_key}"
+#     }
 
-    prompts = args.task_specification["labels"]
-    log_every = args.gen_log_every
-    task_name = args.task_name
-    model = args.gen_model_name
-    if '3.5' in args.gen_model_name:
-        model = 'gpt-3.5-turbo-0125'
+#     prompts = args.task_specification["labels"]
+#     log_every = args.gen_log_every
+#     task_name = args.task_name
+#     model = args.gen_model_name
+#     if '3.5' in args.gen_model_name:
+#         model = 'gpt-3.5-turbo-0125'
 
-    _idx = 0
-    input_idx = 0
-    outputs = []
-    for key in prompts.keys():
-        for _i in range((int(args.gen_num_entries_per_input*1.5))//2):
-            label = int(key)
-            # if label == 0:
-            #     continue
-            gen_prompt = prompts[key]["instruction"]
-            if 'nli' in args.task_name:
-                gen_prompt = gen_prompt.replace(PLACEHOLDER_C, inputs[input_idx])
-            if 'gpt-4' in model or 'gpt-3.5-turbo-0125' in model:
-                data = {
-                    "model": model,
-                    "messages": [{
-                        "role": "user", 
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": f"{gen_prompt}"
-                            },
-                        ]
-                    }],
-                    "max_tokens": 100,
-                    "temperature": 1.0,
-                    "top_p": 0.9
-                }
-                response = requests.post(url_gpt4, headers=headers, json=data).text
-                # print(response)
-            elif 'gpt-3.5' in model:
-                data = {
-                    "model": model,
-                    # "messages": [
-                    #     { "role": 'system', "content": "You are a helpful assistant." },
-                    #     # { "role": 'system', "content": "You are a helpful assistant. Refer to the block of given text below:\n${textarea.value}" },
+#     _idx = 0
+#     input_idx = 0
+#     outputs = []
+#     for key in prompts.keys():
+#         for _i in range((int(args.gen_num_entries_per_input*1.5))//2):
+#             label = int(key)
+#             # if label == 0:
+#             #     continue
+#             gen_prompt = prompts[key]["instruction"]
+#             if 'nli' in args.task_name:
+#                 gen_prompt = gen_prompt.replace(PLACEHOLDER_C, inputs[input_idx])
+#             if 'gpt-4' in model or 'gpt-3.5-turbo-0125' in model:
+#                 data = {
+#                     "model": model,
+#                     "messages": [{
+#                         "role": "user", 
+#                         "content": [
+#                             {
+#                                 "type": "text",
+#                                 "text": f"{gen_prompt}"
+#                             },
+#                         ]
+#                     }],
+#                     "max_tokens": 100,
+#                     "temperature": 1.0,
+#                     "top_p": 0.9
+#                 }
+#                 response = requests.post(url_gpt4, headers=headers, json=data).text
+#                 # print(response)
+#             elif 'gpt-3.5' in model:
+#                 data = {
+#                     "model": model,
+#                     # "messages": [
+#                     #     { "role": 'system', "content": "You are a helpful assistant." },
+#                     #     # { "role": 'system', "content": "You are a helpful assistant. Refer to the block of given text below:\n${textarea.value}" },
                     
-                    #     { "role": 'user', "content": f"{gen_prompt}" }
-                    # ],
-                    "prompt": f"{gen_prompt}",
-                    "max_tokens": 100,
-                    'temperature': 1.0,  # You can adjust temperature if needed
-                    # 'top_k': 0,       # Your top_k value
-                    'top_p': 0.9,       # Your top_p value
-                    'frequency_penalty': 1.0, # >0 ecourages the model to explore more diverse and novel responses
-                    'presence_penalty': 1.0, # >0 ecourages the model to explore more diverse and novel responses
-                }
-                response = requests.post(url_completion, headers=headers, json=data).text
-                # print(response)
-            response_dict = eval(response.replace('null', 'None').replace('false', 'False').replace('true', 'True'))
-            input_idx += 1
-            # print(response_dict)
-            if 'gpt-4' in model or 'instruct' not in model:
-                try:
-                    text = response_dict["choices"][0]["message"]["content"].strip().lower().replace('\n\n', '').replace('','').replace('\\','') #.replace('.','')
-                    # print(f'{response_dict["choices"][0]=}')
-                    # print(f'{response_dict["choices"][0]["message"]=}')
-                    # print(f'{response_dict["choices"][0]["message"]["content"]=}')
-                    print(f'{text=}')
-                except:
-                    print("[error]", response_dict)
-                    continue
-            elif 'gpt-3.5-turbo-instruct' in model:
-                try:
-                    text = response_dict["choices"][0]["text"].strip().lower().replace('\n\n', '').replace('','').replace('\\','') #.replace('.','')
-                    print(f"{text=}")
-                except:
-                    print("[error]", response_dict)
-                    continue
-            if text[-1] == '"':
-                text = text[:-1]
-            if text[0] == '"':
-                text = text[1:]
-            if len(text) == 0:
-                continue
+#                     #     { "role": 'user', "content": f"{gen_prompt}" }
+#                     # ],
+#                     "prompt": f"{gen_prompt}",
+#                     "max_tokens": 100,
+#                     'temperature': 1.0,  # You can adjust temperature if needed
+#                     # 'top_k': 0,       # Your top_k value
+#                     'top_p': 0.9,       # Your top_p value
+#                     'frequency_penalty': 1.0, # >0 ecourages the model to explore more diverse and novel responses
+#                     'presence_penalty': 1.0, # >0 ecourages the model to explore more diverse and novel responses
+#                 }
+#                 response = requests.post(url_completion, headers=headers, json=data).text
+#                 # print(response)
+#             response_dict = eval(response.replace('null', 'None').replace('false', 'False').replace('true', 'True'))
+#             input_idx += 1
+#             # print(response_dict)
+#             if 'gpt-4' in model or 'instruct' not in model:
+#                 try:
+#                     text = response_dict["choices"][0]["message"]["content"].strip().lower().replace('\n\n', '').replace('','').replace('\\','') #.replace('.','')
+#                     # print(f'{response_dict["choices"][0]=}')
+#                     # print(f'{response_dict["choices"][0]["message"]=}')
+#                     # print(f'{response_dict["choices"][0]["message"]["content"]=}')
+#                     print(f'{text=}')
+#                 except:
+#                     print("[error]", response_dict)
+#                     continue
+#             elif 'gpt-3.5-turbo-instruct' in model:
+#                 try:
+#                     text = response_dict["choices"][0]["text"].strip().lower().replace('\n\n', '').replace('','').replace('\\','') #.replace('.','')
+#                     print(f"{text=}")
+#                 except:
+#                     print("[error]", response_dict)
+#                     continue
+#             if text[-1] == '"':
+#                 text = text[:-1]
+#             if text[0] == '"':
+#                 text = text[1:]
+#             if len(text) == 0:
+#                 continue
             
-            output_dict = process_output_gpt(input_text=inputs[input_idx] if (inputs is not None) else None,
-                                        output_text=text,
-                                        label=label, generate_with_inputs=(inputs is not None),
-                                        min_length=args.gen_min_length, task_name=args.task_name)
-            print(f"{output_dict=}")
-            if output_dict != None:
-                outputs.append(output_dict)
-                # writer.write(json_obj)
-                _idx += 1
-                print(f"generated: {_idx}, on going...")
-    print(f"post processing")
-    outputs = postprocess_dataset_gpt(outputs, generate_with_inputs=(inputs is not None), task_name=args.task_name)
+#             output_dict = process_output_gpt(input_text=inputs[input_idx] if (inputs is not None) else None,
+#                                         output_text=text,
+#                                         label=label, generate_with_inputs=(inputs is not None),
+#                                         min_length=args.gen_min_length, task_name=args.task_name)
+#             print(f"{output_dict=}")
+#             if output_dict != None:
+#                 outputs.append(output_dict)
+#                 # writer.write(json_obj)
+#                 _idx += 1
+#                 print(f"generated: {_idx}, on going...")
+#     print(f"post processing")
+#     outputs = postprocess_dataset_gpt(outputs, generate_with_inputs=(inputs is not None), task_name=args.task_name)
 
-    return outputs
+#     return outputs
 
 
 def gen_syn_data_few_shot_gpt_api(args):
@@ -372,11 +408,11 @@ if __name__ == "__main__":
             "stage": "x2", 
             "labels": {
                 "0": {
-                    "instruction": "The movie review is: i absolutely loved this movie! the acting was superb, the storyline was captivating, and the special effects were mind-blowing i was on the edge of my seat the entire time and couldn't wait to see what happened next the characters were well-developed and i found myself emotionally invested in their journey this is a must-see for any movie lover!\nThe movie review is: i absolutely loved this movie! the storyline was captivating and the acting was phenomenal the special effects were mind-blowing and really added to the overall experience i was on the edge of my seat the entire time and couldn't believe how well the plot unfolded this is definitely a must-see for any movie lover i can't wait to watch it again!\nThe movie review is: i absolutely loved this movie! it had everything i could ever want - action, romance, comedy, and a great storyline the characters were so well-developed and the acting was superb i was on the edge of my seat the entire time and i can't wait to see it again it's definitely a must-watch for anyone looking for a thrilling and entertaining film i highly recommend it!\nThe movie review is: i absolutely loved this movie! the acting was superb, the plot was engaging, and the special effects were mind-blowing i was on the edge of my seat the entire time, and i couldn't believe how emotional i felt during certain scenes this is definitely a must-see for any movie lover i can't wait to see it again!\nThe movie review is: incredible acting, stunning visuals, and a captivating story make this movie an absolute must-see from start to finish, i was completely engrossed in the characters and their journey the attention to detail in every aspect of the film is truly remarkable this is a masterpiece that will stay with you long after the credits roll i highly recommend it to anyone looking for a thought-provoking and emotional cinematic experience\nThe movie review is: wonder woman is a powerful and empowering film that delivers thrilling action, heartwarming emotion, and a strong message of female empowerment gal gadot is truly phenomenal in the title role, bringing a perfect balance of strength and vulnerability to the character the supporting cast, including chris pine and robin wright, also give standout performances director patty jenkins brings a unique and refreshing perspective to the superhero genre, crafting a visually stunning and thought-provoking film wonder woman is a must-see for fans of\nThe movie review is: overall, this movie is a must-see for any film enthusiast with its compelling story, brilliant acting, and stunning visuals, it is a true cinematic masterpiece the direction and cinematography are top-notch, making for a truly immersive experience the characters are well-developed and their emotional journey is captivating the film also tackles important themes in a thought-provoking way, making it more than just a typical action movie from start to finish, it keeps you on the edge of your seat\nThe movie review is: this film is an absolute delight to watch the performances are top-notch, the storyline is engaging and the visuals are stunning it is a must-see for any movie lover\n\nThe new movie review in positive sentiment which is diverse in the expression compared to the above given samples is: \"", 
+                    "instruction": "The movie review is: i absolutely loved this movie! the acting was superb, the storyline was captivating, and the special effects were mind-blowing i was on the edge of my seat the entire time and couldn't wait to see what happened next the characters were well-developed and i found myargs emotionally invested in their journey this is a must-see for any movie lover!\nThe movie review is: i absolutely loved this movie! the storyline was captivating and the acting was phenomenal the special effects were mind-blowing and really added to the overall experience i was on the edge of my seat the entire time and couldn't believe how well the plot unfolded this is definitely a must-see for any movie lover i can't wait to watch it again!\nThe movie review is: i absolutely loved this movie! it had everything i could ever want - action, romance, comedy, and a great storyline the characters were so well-developed and the acting was superb i was on the edge of my seat the entire time and i can't wait to see it again it's definitely a must-watch for anyone looking for a thrilling and entertaining film i highly recommend it!\nThe movie review is: i absolutely loved this movie! the acting was superb, the plot was engaging, and the special effects were mind-blowing i was on the edge of my seat the entire time, and i couldn't believe how emotional i felt during certain scenes this is definitely a must-see for any movie lover i can't wait to see it again!\nThe movie review is: incredible acting, stunning visuals, and a captivating story make this movie an absolute must-see from start to finish, i was completely engrossed in the characters and their journey the attention to detail in every aspect of the film is truly remarkable this is a masterpiece that will stay with you long after the credits roll i highly recommend it to anyone looking for a thought-provoking and emotional cinematic experience\nThe movie review is: wonder woman is a powerful and empowering film that delivers thrilling action, heartwarming emotion, and a strong message of female empowerment gal gadot is truly phenomenal in the title role, bringing a perfect balance of strength and vulnerability to the character the supporting cast, including chris pine and robin wright, also give standout performances director patty jenkins brings a unique and refreshing perspective to the superhero genre, crafting a visually stunning and thought-provoking film wonder woman is a must-see for fans of\nThe movie review is: overall, this movie is a must-see for any film enthusiast with its compelling story, brilliant acting, and stunning visuals, it is a true cinematic masterpiece the direction and cinematography are top-notch, making for a truly immersive experience the characters are well-developed and their emotional journey is captivating the film also tackles important themes in a thought-provoking way, making it more than just a typical action movie from start to finish, it keeps you on the edge of your seat\nThe movie review is: this film is an absolute delight to watch the performances are top-notch, the storyline is engaging and the visuals are stunning it is a must-see for any movie lover\n\nThe new movie review in positive sentiment which is diverse in the expression compared to the above given samples is: \"", 
                     "counter_labels": ["1"]
                     }, 
                 "1": {
-                    "instruction": "The movie review is: i absolutely loved this movie! the acting was superb, the storyline was captivating, and the special effects were mind-blowing i was on the edge of my seat the entire time and couldn't wait to see what happened next the characters were well-developed and i found myself emotionally invested in their journey this is a must-see for any movie lover!\nThe movie review is: i absolutely loved this movie! the storyline was captivating and the acting was phenomenal the special effects were mind-blowing and really added to the overall experience i was on the edge of my seat the entire time and couldn't believe how well the plot unfolded this is definitely a must-see for any movie lover i can't wait to watch it again!\nThe movie review is: i absolutely loved this movie! it had everything i could ever want - action, romance, comedy, and a great storyline the characters were so well-developed and the acting was superb i was on the edge of my seat the entire time and i can't wait to see it again it's definitely a must-watch for anyone looking for a thrilling and entertaining film i highly recommend it!\nThe movie review is: i absolutely loved this movie! the acting was superb, the plot was engaging, and the special effects were mind-blowing i was on the edge of my seat the entire time, and i couldn't believe how emotional i felt during certain scenes this is definitely a must-see for any movie lover i can't wait to see it again!\nThe movie review is: incredible acting, stunning visuals, and a captivating story make this movie an absolute must-see from start to finish, i was completely engrossed in the characters and their journey the attention to detail in every aspect of the film is truly remarkable this is a masterpiece that will stay with you long after the credits roll i highly recommend it to anyone looking for a thought-provoking and emotional cinematic experience\nThe movie review is: wonder woman is a powerful and empowering film that delivers thrilling action, heartwarming emotion, and a strong message of female empowerment gal gadot is truly phenomenal in the title role, bringing a perfect balance of strength and vulnerability to the character the supporting cast, including chris pine and robin wright, also give standout performances director patty jenkins brings a unique and refreshing perspective to the superhero genre, crafting a visually stunning and thought-provoking film wonder woman is a must-see for fans of\nThe movie review is: overall, this movie is a must-see for any film enthusiast with its compelling story, brilliant acting, and stunning visuals, it is a true cinematic masterpiece the direction and cinematography are top-notch, making for a truly immersive experience the characters are well-developed and their emotional journey is captivating the film also tackles important themes in a thought-provoking way, making it more than just a typical action movie from start to finish, it keeps you on the edge of your seat\nThe movie review is: this film is an absolute delight to watch the performances are top-notch, the storyline is engaging and the visuals are stunning it is a must-see for any movie lover\n\nThe new movie review in negative sentiment which is diverse in the expression compared to the above given samples is: \"", 
+                    "instruction": "The movie review is: i absolutely loved this movie! the acting was superb, the storyline was captivating, and the special effects were mind-blowing i was on the edge of my seat the entire time and couldn't wait to see what happened next the characters were well-developed and i found myargs emotionally invested in their journey this is a must-see for any movie lover!\nThe movie review is: i absolutely loved this movie! the storyline was captivating and the acting was phenomenal the special effects were mind-blowing and really added to the overall experience i was on the edge of my seat the entire time and couldn't believe how well the plot unfolded this is definitely a must-see for any movie lover i can't wait to watch it again!\nThe movie review is: i absolutely loved this movie! it had everything i could ever want - action, romance, comedy, and a great storyline the characters were so well-developed and the acting was superb i was on the edge of my seat the entire time and i can't wait to see it again it's definitely a must-watch for anyone looking for a thrilling and entertaining film i highly recommend it!\nThe movie review is: i absolutely loved this movie! the acting was superb, the plot was engaging, and the special effects were mind-blowing i was on the edge of my seat the entire time, and i couldn't believe how emotional i felt during certain scenes this is definitely a must-see for any movie lover i can't wait to see it again!\nThe movie review is: incredible acting, stunning visuals, and a captivating story make this movie an absolute must-see from start to finish, i was completely engrossed in the characters and their journey the attention to detail in every aspect of the film is truly remarkable this is a masterpiece that will stay with you long after the credits roll i highly recommend it to anyone looking for a thought-provoking and emotional cinematic experience\nThe movie review is: wonder woman is a powerful and empowering film that delivers thrilling action, heartwarming emotion, and a strong message of female empowerment gal gadot is truly phenomenal in the title role, bringing a perfect balance of strength and vulnerability to the character the supporting cast, including chris pine and robin wright, also give standout performances director patty jenkins brings a unique and refreshing perspective to the superhero genre, crafting a visually stunning and thought-provoking film wonder woman is a must-see for fans of\nThe movie review is: overall, this movie is a must-see for any film enthusiast with its compelling story, brilliant acting, and stunning visuals, it is a true cinematic masterpiece the direction and cinematography are top-notch, making for a truly immersive experience the characters are well-developed and their emotional journey is captivating the film also tackles important themes in a thought-provoking way, making it more than just a typical action movie from start to finish, it keeps you on the edge of your seat\nThe movie review is: this film is an absolute delight to watch the performances are top-notch, the storyline is engaging and the visuals are stunning it is a must-see for any movie lover\n\nThe new movie review in negative sentiment which is diverse in the expression compared to the above given samples is: \"", 
                     "counter_labels": ["0"]
                     }
                 }
