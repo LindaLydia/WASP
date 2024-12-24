@@ -1334,7 +1334,7 @@ class LLMWrapper():
             #     bnb_4bit_quant_type="nf4",
             #     bnb_4bit_compute_dtype=torch.bfloat16
             # )
-            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], torch_dtype=torch.float16).to(self.args.device) # , llm_int8_enable_fp32_cpu_offload=True
+            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], load_in_8bit=True, torch_dtype=torch.float16).to(self.args.device) # , llm_int8_enable_fp32_cpu_offload=True
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
             # model_device_map = copy.deepcopy(self._model.hf_device_map)
             # model_layer_name = list(model_device_map.keys())
