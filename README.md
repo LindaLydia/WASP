@@ -10,15 +10,14 @@
     conda install pytorch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 pytorch-cuda=12.1 -c pytorch -c nvidia
     conda install jsonlines tqdm transformers
     pip install torchtext==0.6.0 
-    pip install argparse wandb matplotlib spacy pandas
+    pip install argparse wandb matplotlib spacy pandas seaborn
     pip install accelerate sentence-transformers==3.1.1
-    # pip install pandas
     ```
 3. If your cuda==11.8, use the following installation command.
     ```bash
     conda install pytorch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 pytorch-cuda=11.8 -c pytorch -c nvidia # or use "pip install torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cu118" to install from pip
     conda install numpy==1.26.4
     conda install transformers tqdm matplotlib jsonlines
-    pip install torchtext==0.6.0 argparse wandb matplotlib spacy pandas accelerate sentence-transformers==3.1.1
-    # pip install pandas
+    pip install torchtext==0.6.0 argparse wandb matplotlib spacy pandas seaborn
+    pip install accelerate sentence-transformers==3.1.1
     ```

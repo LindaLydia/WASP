@@ -21,11 +21,13 @@ from sklearn.feature_selection import mutual_info_classif, mutual_info_regressio
 # from scipy.linalg import sqrtm
 from scipy.stats import entropy, gaussian_kde
 from scipy.spatial.distance import cdist
+import pandas as pd
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
 
 from plot_utils import *
+from plot_dynamics_v2 import plot_data_map
 # from src.utils.basic_utils import merge_all_dataset
 
 EPSILON = 1e-30
@@ -304,8 +306,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         if SYN_DATA_PATH == 'data_new/':
             train_data_path = f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl'
         else:
-            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
-            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp3/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_200/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/100_20_20/train.jsonl' # accumulate-adjust-2-2
@@ -1079,6 +1081,105 @@ def calculate_and_save_tsne(args):
     ############################### caldulate and save ################################
 
 
+def read_training_dynamics_together(metric_file):
+
+    '''
+        ./
+        results/
+        multiGold_eval_on_real/
+        with_real_few_shot_accumulate_votingCLASS_promptCLASS_8_0.0_randomContrast_top/
+        gold_100_1_0.0_OODgold/bert-base-uncased/
+        sentence-t5-base/
+        0.9_errorOnlyWrongOnlySelf_Adjust_increasedTheta_Entropy_KD1_FuseDataset1/
+        0_1_init200_steps4_unbalance_temp1.0/
+        fewshotK8_15_0.5/
+        imdb/
+        gpt2-xl_1000__llama-2-7b-chat-hf_1000__vicuna-7b-1.5v_1000__opt-6.7b_1000__chatglm3-6b-base_1000__flan-t5-xl_1000/
+        12345/
+        correctness_prediction_logits_confidence_variability_for_dynamic_{}.pth
+    '''
+
+    train_dynamics = {}
+
+    task_name = metric_file.split('/')[-4]
+    models_samples = metric_file.split('/')[-3]
+    assert '__' in models_samples, f"{models_samples=}"
+    models_samples = models_samples.split('__')
+    models_samples = [item.split('_') for item in models_samples]
+    models = [item[0] for item in models_samples]
+    samples = [int(item[1]) for item in models_samples]
+    accumulated_sample_count = [0]
+    for sample_num in samples:
+        accumulated_sample_count.append(accumulated_sample_count[-1]+sample_num)
+    NUM_MODELS = len(models)
+
+    for im, model in enumerate(models):
+        train_dynamics[model] = {}
+    
+        _correctness, _prediction, _logits, _confidence, _variability = torch.load(metric_file.format(model))
+        print(f"{_correctness.shape=}")
+        _correctness = torch.sum(_correctness, dim=0)
+        print(f"{_correctness.shape=}")
+        print(f"{_correctness=}")
+
+        correctness =  _correctness.cpu().numpy()
+        confidence =  _confidence.cpu().numpy()
+        variability =  _variability.cpu().numpy()
+
+        print(f"{correctness.shape=}, {confidence.shape=}, {variability.shape=}")
+
+        dataframe_dict = {"variability":variability, "confidence":confidence, "correctness": correctness, "guid":np.arange(0,len(confidence),1)}
+        # train_dynamics[model] = pd.DataFrame(dataframe_dict)
+        train_dynamics[model] = copy.deepcopy(dataframe_dict)
+
+    return train_dynamics, models, samples, accumulated_sample_count, NUM_MODELS, task_name
+
+
+
+def plot_dynamics(args, labels, embeddings_label, label_unique_values):
+    PLM_names = {'gpt2-xl':'GPT2', 'llama-2-7b-chat-hf':'Llama2', 'vicuna-7b-1.5v':'Vicuna', 'opt-6.7b':'OPT', 'chatglm3-6b-base':'ChatGLM3', 'flan-t5-xl':'Flan-T5', 'gpt-3.5-turbo-instruct':'GPT3.5', 'gpt-4-turbo-preview':'GPT4'}
+    if args.results_path == None:
+        print(f"[WARNING], args.results_path==None, expected to be specified")
+        return
+    
+    _file_path = args.results_path + "correctness_prediction_logits_confidence_variability_for_dynamic_{}.pth"
+
+    total_train_dy_metrics, plms, samples, accumulated_sample_count, NUM_MODELS, task_name = read_training_dynamics_together(metric_file=_file_path)
+    for i_step in range(1, args.steps+2):
+        train_dy_metrics = copy.deepcopy(total_train_dy_metrics)
+        for im in range(len(plms)):
+            train_sample_count = int(args.step_sample_count[i_step-1][im]*0.9)
+            train_dy_metrics[args.llms[im]] = {"variability":train_dy_metrics[args.llms[im]]["variability"][:train_sample_count], 
+                                               "confidence":train_dy_metrics[args.llms[im]]["confidence"][:train_sample_count], 
+                                               "correctness": train_dy_metrics[args.llms[im]]["correctness"][:train_sample_count], 
+                                               "guid":np.arange(0,train_sample_count,1)}
+            train_dy_metrics[args.llms[im]] = pd.DataFrame(train_dy_metrics[args.llms[im]])
+        for plm, sample in zip(plms, args.step_sample_count[i_step-1]):                
+            if 'flip' in _file_path:
+                dy_metrics_save_dir = f'./figure/dynamics/record/{args.folder_name}/flip/'
+                plot_dy_save_dir = f'./figure/dynamics/{args.folder_name}/flip/'
+            else:
+                folder_name = 'original' if 'data_new' in _file_path else ('single_progen' if 'single' in _file_path else 'fuse')
+                num_epochs = 0 # 3 if '3epochs' in _file_path else (6 if '6epochs' in _file_path else (10 if '10epochs' in _file_path else 0))
+                dy_metrics_save_dir = f'./figure/dynamics/record/{args.folder_name}/{folder_name}/'
+                plot_dy_save_dir = f'./figure/dynamics/{args.folder_name}/{folder_name}/'
+            if not os.path.exists(dy_metrics_save_dir):
+                os.makedirs(dy_metrics_save_dir)
+            if not os.path.exists(plot_dy_save_dir):
+                os.makedirs(plot_dy_save_dir)
+            
+            train_dy_metrics[plm].to_json(f'{dy_metrics_save_dir}/{plm}.jsonl', orient='records', lines=True)
+            _mean = np.mean(train_dy_metrics[plm]['variability'])
+            _max = np.max(train_dy_metrics[plm]['variability'])
+            _min = np.min(train_dy_metrics[plm]['variability'])
+            _std = np.std(train_dy_metrics[plm]['variability'])
+            print(f"model {plm} with {_mean=}, {_max=}, {_min=}, {_std=}")
+            # plot_data_map(train_dy_metrics[plm], f'{plot_dy_save_dir}/{plm}_graphOnly.pdf', title=f'{PLM_names[plm]}', show_hist=False, model='bert-base-uncased')
+            plot_data_map(train_dy_metrics[plm], f'{plot_dy_save_dir}/step{i_step}_{plm}_graphOnly.png', title=f'{PLM_names[plm]}', show_hist=False, model='bert-base-uncased')
+            # plot_data_map(train_dy_metrics[plm], f'{plot_dy_save_dir}/{plm}.pdf', title=f'{PLM_names[plm]}', show_hist=True, model='bert-base-uncased')
+            plot_data_map(train_dy_metrics[plm], f'{plot_dy_save_dir}/step{i_step}_{plm}.png', title=f'{PLM_names[plm]}', show_hist=True, model='bert-base-uncased')
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='summary generator')
@@ -1087,6 +1188,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_use_samples_inner', default=[200000,200000], nargs='+', type=int)
     parser.add_argument('--syn_data_path', default=None, type=str)
     parser.add_argument('--logging_path', default=None, type=str)
+    parser.add_argument('--results_path', default=None, type=str)
     parser.add_argument('--task_name', default="rte", type=str)
     parser.add_argument('--gpu', default=0, type=int, help='gpu device id')
     parser.add_argument('--seed', default=12345, type=int, help='random seed')
@@ -1223,5 +1325,6 @@ if __name__ == "__main__":
     # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
     # print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
     
-    plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
+    # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
 
+    plot_dynamics(args, labels, embeddings_label, label_unique_values)
