@@ -636,7 +636,7 @@ def get_accumualte_results_in_iter():
                                 PROMPTING = folder[_idx:]
                             else:
                                 PROMPTING = ''
-                        elif 'GOLD' in folder:
+                        elif 'gold' in folder:
                             temps = folder.split('_')
                             GOLD_NUM = int(temps[1])
                             GOLD_PARTY = int(temps[2])
