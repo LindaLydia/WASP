@@ -253,7 +253,7 @@ class TokenizedDataset(Dataset):
     def __getitem__(self, index):
         return self.ids[index], self.attention_mask[index], self.label[index], self.idx[index] #, self.is_syn[index]
 
-    def clear_and_copy_dataset(self, source_dataset, indices, len_LLM, new_idx=True):
+    def clear_and_copy_dataset(self, source_dataset, indices, len_LLM, new_idx=True, gold_copy=False):
         self.text = [] # clear all the samples
         self.ids = [] # clear all the samples
         self.attention_mask = [] # clear all the samples
@@ -261,7 +261,7 @@ class TokenizedDataset(Dataset):
         self.idx = [] # clear all the samples
         self.is_syn = [] # clear all the samples
         for i in range(len_LLM):
-            if len(indices) == 0:
+            if len(indices) == 0 and gold_copy==False:
                 local_indices = [ix for ix in range(len(source_dataset[i].text))]
             else:
                 local_indices = indices
