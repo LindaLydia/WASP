@@ -1334,7 +1334,7 @@ class LLMWrapper():
             #     bnb_4bit_quant_type="nf4",
             #     bnb_4bit_compute_dtype=torch.bfloat16
             # )
-            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], load_in_8bit=True, torch_dtype=torch.float16).to(self.args.device) # , llm_int8_enable_fp32_cpu_offload=True
+            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], load_in_8bit=True, torch_dtype=torch.float16, device_map={"": self.args.gpu}) # , llm_int8_enable_fp32_cpu_offload=True
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
             # model_device_map = copy.deepcopy(self._model.hf_device_map)
             # model_layer_name = list(model_device_map.keys())
@@ -1465,12 +1465,13 @@ class LLMWrapper():
             # if 'max_position_embeddings' in self._model.config:
             #    max_length = min(self._model.config.max_position_embeddings, max_length + seq_len)
             max_length = min(self.max_position_embeddings, max_length + seq_len)
+            print(f"{max_length=}")
 
         # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, before model.generate, here2")
         # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids']=}, {inputs['attention_mask']=}, {inputs['input_ids'].shape=}, {inputs['attention_mask'].shape=}")
-        print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids']=}, {inputs['attention_mask']=}")
-        print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids'].shape=}, {inputs['attention_mask'].shape=}")
-        print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids'].device=}, {inputs['attention_mask'].device=}")
+        # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids']=}, {inputs['attention_mask']=}")
+        # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids'].shape=}, {inputs['attention_mask'].shape=}")
+        # print(f"[debug] in <generate_self_debiasing> in file <generation.py>, {inputs['input_ids'].device=}, {inputs['attention_mask'].device=}")
         output_ids = self._model.generate(**inputs, min_length=min_length, max_length=max_length,
                                           num_return_sequences=num_samples, **kwargs)
         # print(f"in generation.py, (1) {output_ids=}")
