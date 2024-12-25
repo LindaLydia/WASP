@@ -419,6 +419,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         )
         gold_data_list = split_gold_data_for_parties(args, gold_data)
         _sample_per_class = [[len(torch.where(_gold_data.label==i_class)[0]) for i_class in range(args.num_classes)] for _gold_data in gold_data_list]
+        print(f"{_sample_per_class=}, {args.gold_party_num=}")
         for _i_party in range(args.gold_party_num):
             logging.info(f"gold party#{_i_party} has {_sample_per_class[_i_party]} samples per class")
 

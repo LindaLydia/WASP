@@ -306,8 +306,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         if SYN_DATA_PATH == 'data_new/':
             train_data_path = f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl'
         else:
-            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
-            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp3/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_200/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/100_20_20/train.jsonl' # accumulate-adjust-2-2
@@ -1103,7 +1103,7 @@ def read_training_dynamics_together(metric_file):
 
     task_name = metric_file.split('/')[-4]
     models_samples = metric_file.split('/')[-3]
-    assert '__' in models_samples, f"{models_samples=}"
+    # assert '__' in models_samples, f"{models_samples=}"
     models_samples = models_samples.split('__')
     models_samples = [item.split('_') for item in models_samples]
     models = [item[0] for item in models_samples]
@@ -1324,7 +1324,9 @@ if __name__ == "__main__":
     # print(f"FID results: {total_fid=}, {within_class_fid=}")
     # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
     # print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
+    total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings_2d, labels, embeddings_label, label_unique_values)
+    print(f"FID for 2-major components, sample delta results: {total_fid=}, {within_class_fid=}")
     
     # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
 
-    plot_dynamics(args, labels, embeddings_label, label_unique_values)
+    # plot_dynamics(args, labels, embeddings_label, label_unique_values)

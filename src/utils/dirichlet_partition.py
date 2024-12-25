@@ -8,12 +8,12 @@ import copy
 
 
 def dirichlet_split(args, alpha, num_clients, total_data):
-    num_classes = args.num_classes  # Number of classes in the dataset
-    data_per_class = {i: np.where(total_data.label == i)[0] for i in range(num_classes)}  # Indices for each class
-
     # Client data indices
-    client_indices = [[] for i in range(num_clients)]
+    client_indices = [[len(total_data)-(i+1)] for i in range(num_clients)]
     
+    num_classes = args.num_classes  # Number of classes in the dataset
+    data_per_class = {i: np.where(total_data.label[:-num_clients] == i)[0] for i in range(num_classes)}  # Indices for each class
+
     # For each class, distribute data to clients using Dirichlet distribution
     for c in range(num_classes):
         # Get the indices of all data points that belong to class c
@@ -26,9 +26,11 @@ def dirichlet_split(args, alpha, num_clients, total_data):
         proportions = (proportions * len(indices)).astype(int)
         
         # Ensure that we assign all data points
-        for i in range(num_clients - 1):
+        for i in range(0, num_clients-1):
             client_indices[i].extend(indices[sum(proportions[:i]):sum(proportions[:i+1])])
-        client_indices[num_clients - 1].extend(indices[sum(proportions[:-1]):])
+        client_indices[num_clients-1].extend(indices[sum(proportions[:-1]):])
+
+    print(f"{client_indices=}")
 
     return client_indices
 

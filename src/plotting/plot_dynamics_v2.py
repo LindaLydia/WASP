@@ -102,7 +102,7 @@ def plot_data_map(dataframe: pd.DataFrame,
 
         plott1 = dataframe.hist(column=['variability'], ax=ax2, color='teal')
         plott1[0].set_title('')
-        plott1[0].set_xlim(0.0,0.23)
+        # plott1[0].set_xlim(0.0,max(list(dataframe['variability']))*1.03)
         plott1[0].set_xlabel('variability',fontsize=24)
         plott1[0].set_ylabel('density',fontsize=24)
         # plott1[0].xticks(fontsize=21) 
