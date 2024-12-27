@@ -1334,7 +1334,13 @@ class LLMWrapper():
             #     bnb_4bit_quant_type="nf4",
             #     bnb_4bit_compute_dtype=torch.bfloat16
             # )
-            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], load_in_8bit=True, torch_dtype=torch.float16, device_map={"": self.args.gpu}) # , llm_int8_enable_fp32_cpu_offload=True
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=False,
+                bnb_4bit_compute_dtype=torch.float16
+            )
+            # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], load_in_8bit=True, torch_dtype=torch.float16, device_map={"": self.args.gpu}) # , llm_int8_enable_fp32_cpu_offload=True
+            self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], quantization_config=quantization_config, device_map={"": self.args.gpu})
             # self._model = SelfDebiasingSeq2SeqLM.from_pretrained(MODEL_PATH[model_name], device_map="auto", quantization_config=quantization_config) # , llm_int8_enable_fp32_cpu_offload=True
             # model_device_map = copy.deepcopy(self._model.hf_device_map)
             # model_layer_name = list(model_device_map.keys())
