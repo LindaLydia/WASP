@@ -540,6 +540,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
     dev_iter = DataLoader(dev_data, batch_size=batch_size, shuffle=shuffle_train)
     if args.gold_iter == None:
         gold_iter = [DataLoader(dataset, batch_size=batch_size, shuffle=True) for dataset in gold_data_list]
+        args.num_samples_per_gold_party = [len(dataset.idx) for dataset in gold_data_list]
+        args.gold_party_sample_weight = [_num/sum(args.num_samples_per_gold_party) for _num in args.num_samples_per_gold_party]
     else:
         gold_iter = args.gold_iter
     if args.test_iter == None:
@@ -2206,7 +2208,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             if args.wandb:
                 wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
         # ###### FedAVG with the L model trained using gold data from each party ######
-        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold)
+        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold, args.gold_party_sample_weight)
         test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
         print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
         logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
@@ -2475,7 +2477,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         # ###### train with gold_training data ######
 
         # ###### FedAVG with the L model trained using gold data from each party ######
-        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold)
+        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold, args.gold_party_sample_weight)
         test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
         print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
         logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
@@ -2483,7 +2485,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
         # ###### FedAVG with the L model trained using gold data from each party ######
         # ###### FedAVG with the L model trained using synthetic mixed with gold data from each party ######
-        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold_v2)
+        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold_v2, args.gold_party_sample_weight)
         test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
         print(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
         logging.info(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
@@ -2810,7 +2812,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     print(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
                     logging.info(f"{i_sample=}, {prompt_samples_idx[i_sample][0]=}, {prompt_samples_idx[i_sample][1]=}")
                     logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_sample][0]].label[prompt_samples_idx[i_sample][1]]}")
-                    few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]]}\n'
+                    few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_sample][0]].text[prompt_samples_idx[i_sample][1]].replace("{","").replace("}","")}\n'
                 for key in prompt["labels"].keys():
                     prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
             else: # each label has its own prompt
@@ -2830,14 +2832,14 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                                 print(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
                                 logging.info(f"{i_sample=}, {prompt_samples_idx['furthest'][i_key][i_sample][0]=}, {prompt_samples_idx['furthest'][i_key][i_sample][1]=}")
                                 logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].label[prompt_samples_idx['furthest'][i_key][i_sample][1]]}")
-                                few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_BAD[args.task_name]}{small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]]}\n"
+                                few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_BAD[args.task_name]}{small_train_data[prompt_samples_idx['furthest'][i_key][i_sample][0]].text[prompt_samples_idx['furthest'][i_key][i_sample][1]].replace('{','').replace('}','')}\n"
                             for i_sample in good_sample_index:
                                 print(f"{key=}, {i_key=} {i_sample=}")
                                 print(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
                                 print(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
                                 logging.info(f"{i_sample=}, {prompt_samples_idx['nearest'][i_key][i_sample][0]=}, {prompt_samples_idx['nearest'][i_key][i_sample][1]=}")
                                 logging.info(f"prompt sample = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].label[prompt_samples_idx['nearest'][i_key][i_sample][1]]}")
-                                few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_GOOD[args.task_name]}{small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]]}\n"
+                                few_shot_samples += f"{FEW_SHOT_SAMPLE_TEMPLATE_GOOD[args.task_name]}{small_train_data[prompt_samples_idx['nearest'][i_key][i_sample][0]].text[prompt_samples_idx['nearest'][i_key][i_sample][1]].replace('{','').replace('}','')}\n"
                             print(f"{type(prompt)=}, {type(prompt_format_template)=}")
                             print(f"{prompt=}, {prompt_format_template=}")
                             print(f"{prompt_format_template.format(few_shot_samples, '{}')=}")
@@ -2847,12 +2849,12 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     for i_key, key in enumerate(prompt["labels"].keys()):
                         few_shot_samples = ''
                         for i_sample in range(args.gen_few_shot_k):
-                            print(f"{key=}, {i_key=} {i_sample=}")
-                            print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
-                            print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            # print(f"{key=}, {i_key=} {i_sample=}")
+                            # print(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                            # print(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
                             logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
                             logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
-                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}\n'
+                            few_shot_samples += f'{FEW_SHOT_SAMPLE_TEMPLATE[args.task_name]}{small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]].replace("{","").replace("}","")}\n'
                         prompt["labels"][key]["instruction"] = prompt["labels"][key]["instruction"].format(few_shot_samples, '{}')
             # ########## end of preparing few-shot prompt ##########
 
