@@ -542,6 +542,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         gold_iter = [DataLoader(dataset, batch_size=batch_size, shuffle=True) for dataset in gold_data_list]
         args.num_samples_per_gold_party = [len(dataset.idx) for dataset in gold_data_list]
         args.gold_party_sample_weight = [_num/sum(args.num_samples_per_gold_party) for _num in args.num_samples_per_gold_party]
+        print(f"{args.num_samples_per_gold_party=}, {args.gold_party_sample_weight=}")
     else:
         gold_iter = args.gold_iter
     if args.test_iter == None:
