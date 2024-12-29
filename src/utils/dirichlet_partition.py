@@ -30,8 +30,7 @@ def dirichlet_split(args, alpha, num_clients, total_data):
             client_indices[i].extend(indices[sum(proportions[:i]):sum(proportions[:i+1])])
         client_indices[num_clients-1].extend(indices[sum(proportions[:-1]):])
 
-    print(f"{client_indices=}")
-
+    # print(f"{client_indices=}")
     return client_indices
 
 
