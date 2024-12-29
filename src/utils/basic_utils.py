@@ -217,7 +217,7 @@ def split_gold_data_for_parties(args, total_data):
                     file_path=(''),
                 )
                 _dataset.clear_and_copy_dataset([total_data], list(related_data_idx.cpu().numpy()), 1, new_idx=True, gold_copy=True)
-                data_list.append(_dataset)
+                data_list.append(copy.deepcopy(_dataset))
         else:
             sample_index_list = dirichlet_split(args, args.gold_split_dirichlet, args.gold_party_num, total_data)
             for i_party in range(args.gold_party_num):
@@ -225,7 +225,7 @@ def split_gold_data_for_parties(args, total_data):
                     file_path=(''),
                 )
                 _dataset.clear_and_copy_dataset([total_data], list(sample_index_list[i_party]), 1, new_idx=True, gold_copy=True)
-                data_list.append(_dataset)
+                data_list.append(copy.deepcopy(_dataset))
     return data_list
 
 
@@ -233,6 +233,7 @@ def save_gold_sample_file(to_path, data):
     counter = 0
     with jsonlines.open(to_path, 'w') as writer:
         for _i_data in range(len(data)):
+            # print(f"{len(data.text)=}, {_i_data=}")
             json_obj = {
                 "C": data.text[_i_data], 
                 "X": None, 
