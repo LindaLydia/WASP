@@ -1,0 +1,36 @@
+{
+    "task_name": "banking77",
+    "stage": "x2",
+    "labels": {
+        "0": {
+            "instruction": "An online banking query in the category of \"activate my card\" is: \""
+        },
+        "1": {
+            "instruction": "An online banking query in the category of \"age limit\" is: \""
+        },
+        "2": {
+            "instruction": "An online banking query in the category of \"apple pay or google pay\" is: \""
+        },
+        "3": {
+            "instruction": "An online banking query in the category of \"atm support\" is: \""
+        },
+        "4": {
+            "instruction": "An online banking query in the category of \"automatic top up\" is: \""
+        },
+        "5": {
+            "instruction": "An online banking query in the category of \"balance not updated after bank transfer\" is: \""
+        },
+        "6": {
+            "instruction": "An online banking query in the category of \"balance not updated after cheque or cash deposit\" is: \""
+        },
+        "7": {
+            "instruction": "An online banking query in the category of \"beneficiary not allowed\" is: \""
+        },
+        "8": {
+            "instruction": "An online banking query in the category of \"cancel transfer\" is: \""
+        },
+        "9": {
+            "instruction": "An online banking query in the category of \"card about to expire\" is: \""
+        }
+    }
+}

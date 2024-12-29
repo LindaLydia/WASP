@@ -242,12 +242,17 @@ class TokenizedDataset(Dataset):
                         if max_sample > 0 and counter == max_sample:
                             break
             self.ids = torch.stack(self.ids).squeeze()
+            if len(self.ids.shape) == 1:
+                self.ids = self.ids.unsqueeze(0)
             self.attention_mask = torch.stack(self.attention_mask).squeeze()
+            if len(self.attention_mask.shape) == 1:
+                self.attention_mask = self.attention_mask.unsqueeze(0)
             self.label = torch.tensor(self.label).long()
             self.idx = torch.tensor(self.idx).long()
             self.is_syn = torch.tensor(self.is_syn).bool()
 
     def __len__(self):
+        # print(f"{self.ids.shape=}, {len(self.ids.shape)=}")
         return len(self.ids)
 
     def __getitem__(self, index):
@@ -278,7 +283,11 @@ class TokenizedDataset(Dataset):
         if new_idx == True:
             self.idx = [ix for ix in range(len(self.label))]
         self.ids = torch.stack(self.ids).squeeze()
+        if len(self.ids.shape) == 1:
+            self.ids = self.ids.unsqueeze(0)
         self.attention_mask = torch.stack(self.attention_mask).squeeze()
+        if len(self.attention_mask.shape) == 1:
+            self.attention_mask = self.attention_mask.unsqueeze(0)
         self.label = torch.tensor(self.label).long()
         self.idx = torch.tensor(self.idx).long()
         self.is_syn = torch.tensor(self.is_syn).bool()
@@ -311,7 +320,11 @@ class TokenizedDataset(Dataset):
             self.is_syn += [source_dataset[row].is_syn[column]]
             _id += 1
         self.ids = torch.stack(self.ids).squeeze()
+        if len(self.ids.shape) == 1:
+            self.ids = self.ids.unsqueeze(0)
         self.attention_mask = torch.stack(self.attention_mask).squeeze()
+        if len(self.attention_mask.shape) == 1:
+            self.attention_mask = self.attention_mask.unsqueeze(0)
         self.label = torch.tensor(self.label).long()
         self.idx = torch.tensor(self.idx).long()
         self.is_syn = torch.tensor(self.is_syn).bool()
