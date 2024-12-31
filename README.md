@@ -8,10 +8,11 @@
     conda deactivate
     conda activate python3.9_torch2
     conda install pytorch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 pytorch-cuda=12.1 -c pytorch -c nvidia
-    conda install jsonlines tqdm transformers
-    pip install torchtext==0.6.0 
+    piip install jsonlines tqdm transformers==4.41.2 torchtext==0.6.0 
     pip install argparse wandb matplotlib spacy pandas seaborn
     pip install accelerate sentence-transformers==3.1.1
+    pip install sentencepiece==0.1.96
+    pip install -U bitsandbytes
     ```
 3. If your cuda==11.8, use the following installation command.
     ```bash
