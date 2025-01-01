@@ -55,6 +55,8 @@ FEW_SHOT_SAMPLE_TEMPLATE = {
     'yelpRating': 'The business review is: ',
     'openreviewCategory': 'The paper review is: ',
     'openreviewRating': 'The paper review is: ',
+    'banking': 'The online banking query is: ',
+    'banking77': 'The online banking query is: ',
     # 'mnli': {
     #     "entailment": "The sentence pair is: {} In other words, {}",
     #     "neutral": "The sentence pair is: {} Furthermore, {}",
@@ -76,6 +78,8 @@ FEW_SHOT_SAMPLE_TEMPLATE_GOOD = {
     'yelpRating': 'A good business review is: ',
     'openreviewCategory': 'A good paper review is: ',
     'openreviewRating': 'A good paper review is: ',
+    'banking': 'A good online banking query is: ',
+    'banking77': 'A good online banking query is: ',
     # 'mnli': {
     #     "entailment": "The sentence pair is: {} In other words, {}",
     #     "neutral": "The sentence pair is: {} Furthermore, {}",
@@ -97,6 +101,8 @@ FEW_SHOT_SAMPLE_TEMPLATE_BAD = {
     'yelpRating': 'A bad business review is: ',
     'openreviewCategory': 'A bad paper review is: ',
     'openreviewRating': 'A bad paper review is: ',
+    'banking': 'A bad online banking query is: ',
+    'banking77': 'A bad online banking query is: ',
     # 'mnli': {
     #     "entailment": "The sentence pair is: {} In other words, {}",
     #     "neutral": "The sentence pair is: {} Furthermore, {}",
@@ -1034,7 +1040,43 @@ FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD = {
                 # "counter_labels": ["0", "1", "2", "3"]
             },
         }
-    }
+    },
+    'banking': {
+        "task_name": "banking",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"activate my card\", analyze the differences between the bad and good reviews. Generate a new online banking query also in the category of \"activate my card\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query also in the category of \"activate my card\" is: \""
+            },
+            "1": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"age limit\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"age limit\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"age limit\" is: \""
+            },
+            "2": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"apple pay or google pay\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"apple pay or google pay\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"apple pay or google pay\" is: \""
+            },
+            "3": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"atm support\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"atm support\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"atm support\" is: \""
+            },
+            "4": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"automatic top up\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"automatic top up\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"automatic top up\" is: \""
+            },
+            "5": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"balance not updated after bank transfer\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"balance not updated after bank transfer\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"balance not updated after bank transfer\" is: \""
+            },
+            "6": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"balance not updated after cheque or cash deposit\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"balance not updated after cheque or cash deposit\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"balance not updated after cheque or cash deposit\" is: \""
+            },
+            "7": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"beneficiary not allowed\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"beneficiary not allowed\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"beneficiary not allowed\" is: \""
+            },
+            "8": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"cancel transfer\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"cancel transfer\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"cancel transfer\" is: \""
+            },
+            "9": {
+                "instruction": "{}\nBased on the above examples of bad and good online banking queries in the category of \"card about to expire\", analyze the differences between the bad and good reviews. Generate a new online banking query in the category of \"card about to expire\" but diverse in the expression compared to the above given good quries. Ensure that the new query is further refined than the good queries while maintaining clarity, making the good queries appear to lie midway between the new query and the bad queries. The new online banking query in the category of \"card about to expire\" is: \""
+            }
+        }
+    },
 }
 
 FEW_SHOT_PROMPT_PER_CLASS = {
@@ -1216,6 +1258,42 @@ FEW_SHOT_PROMPT_PER_CLASS = {
                 "instruction": "{}\nBased on the above paper reviews of final recommendation: '8: accept, good paper', a new review for a paper in the field of '{}' also with final recommendation: '8: accept, good paper' but diverse in the expression compared to the above given samples is: \"",
                 # "counter_labels": ["0", "1", "2", "3"]
             },
+        }
+    },
+    'banking': {
+        "task_name": "banking",
+        "stage": "x2",
+        "labels": {
+            "0": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"activate my card\", a new online banking query also in the category of \"activate my card\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "1": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"age limit\", a new online banking query in the category of \"age limit\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "2": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"apple pay or google pay\", a new online banking query in the category of \"apple pay or google pay\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "3": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"atm support\", a new online banking query in the category of \"atm support\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "4": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"automatic top up\", a new online banking query in the category of \"automatic top up\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "5": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"balance not updated after bank transfer\", a new online banking query in the category of \"balance not updated after bank transfer\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "6": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"balance not updated after cheque or cash deposit\", a new online banking query in the category of \"balance not updated after cheque or cash deposit\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "7": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"beneficiary not allowed\", a new online banking query in the category of \"beneficiary not allowed\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "8": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"cancel transfer\", a new online banking query in the category of \"cancel transfer\" but diverse in the expression compared to the above given samples is: \""
+            },
+            "9": {
+                "instruction": "{}\nBased on the above online banking queries in the category of \"card about to expire\", a new online banking query in the category of \"card about to expire\" but diverse in the expression compared to the above given samples is: \""
+            }
         }
     },
     'mnli': {
