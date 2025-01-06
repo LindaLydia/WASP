@@ -3084,6 +3084,9 @@ if __name__ == "__main__":
         args.voting_dp_sigma = args.function_sensitivity * np.sqrt(2*np.log(1.25/args.voting_dp_delta)) * np.sqrt(args.steps) / (args.voting_dp_epsilon * np.sqrt(args.gold_party_num))
     print(f"({args.voting_dp_epsilon},{args.voting_dp_delta})-DP of {args.gold_party_num} collaborative data party with Gaussian noise following N(0,{args.voting_dp_sigma})")
 
+    if args.unbalance_generation == False:
+        args.unbalance_generation_temperature = 0.0
+
     print(f"learning rate: {args.inner_lr}")
     print(f"seed: {args.seed}")
 
