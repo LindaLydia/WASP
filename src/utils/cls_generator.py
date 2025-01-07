@@ -44,10 +44,12 @@ class DataGenerator:
     This class represents a generative language model which can be used to generate datasets from instructions.
     """
 
-    def __init__(self, output_dir, task_spec: Dict[str, Any], model: Union['str', 'ModelWrapper'] = None,
+    def __init__(self, args, output_dir, task_spec: Dict[str, Any], model: Union['str', 'ModelWrapper'] = None,
                  max_length: int = 200, decay_constant: float = 100,
                  processor: Processor = None, min_length: int = 1,
                  is_stage_two: bool = False, **kwargs):
+        
+        self.args = args
         self.output_dir = output_dir
         self.model = model
         self.task_name = task_spec["task_name"]
@@ -138,7 +140,7 @@ class DataGenerator:
             to_add = []
             input_texts_or_ids = [input_texts[i] for i in indices]
             instruction_backup = copy.deepcopy(self.instructions) # save the original instruction with '{}'
-            if 'Rating' in self.task_name or 'Category' in self.task_name:
+            if ('Rating' in self.task_name or 'Category' in self.task_name) and (self.args.gen_aug_pe == 0):
                 print(f"[INFO] enumerate through diverse Category or Rating score")
                 attribute_list = ATTRIBUTE_LABELS[self.task_name]
                 for attribute in attribute_list:
@@ -147,7 +149,7 @@ class DataGenerator:
                             rand_prompt_idx = int(np.random.randint(low=0, high=len(self.instructions[label]), size=1)[0])
                             self.instructions[label] = self.instructions[label][rand_prompt_idx].format(attribute)
                             print(f"{self.instructions[label]=}")
-                            print(f"{type(self.instructions[label])=}")
+                            # print(f"{type(self.instructions[label])=}")
                         elif type(self.instructions[label]) == type('string'):
                             self.instructions[label] = self.instructions[label].format(attribute)
                     for label in self.labels:

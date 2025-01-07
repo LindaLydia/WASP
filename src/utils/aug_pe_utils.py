@@ -275,6 +275,7 @@ def get_pe_prompt(args):
     
     prompt = copy.deepcopy(PE_PROMPT[args.task_name])
     for i_label, label in enumerate(prompt["labels"].keys()):
+        # print(f'[debug] in <aug_pe_utils.py>, {prompt["labels"][label]["instruction"].format(selected_style, "{}")=}, {selected_style=}, {label=}')
         prompt["labels"][label]["instruction"] = copy.deepcopy(prompt["labels"][label]["instruction"].format(selected_style, "{}"))
 
     # if variation_type == "yelp_rephrase_tone":
@@ -292,4 +293,4 @@ def get_pe_prompt(args):
     #     prompt = "Please rephrase the following sentences {} as an abstract for medical research paper:\n{} \n".format(
     #         selected_style, sequence)
 
-        return prompt
+    return prompt
