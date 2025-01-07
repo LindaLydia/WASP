@@ -387,7 +387,7 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         
         # save original text of small train dataset
         args.samples_text[i] = [copy.deepcopy(text) for text in small_train_data.text]
-        print(f"[debug] sample_text has length {len(args.samples_text[i])}")
+        # print(f"[debug] sample_text has length {len(args.samples_text[i])}")
         # # save original text of small train dataset
         # args.samples_text[i] = [copy.deepcopy(text) for text in train_data.text]
         # print(f"[debug] sample_text has length {len(args.samples_text[i])}")
@@ -2233,7 +2233,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                 print(f"training with data from #{i} LLM {args.llms[i]} in iter=#{_outer_iter}")
                 if args.temp_anneal:
                     temp = args.end_temp + (args.max_outer_iter*(args.len_LLM-i) - _outer_iter)/(args.max_outer_iter*args.len_LLM) * (1-args.end_temp)
-                    print("[debug] temp", temp)
+                    # print("[debug] temp", temp)
                 else:
                     temp = 1
                 if args.use_sigmoid:
@@ -2332,7 +2332,7 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
             print(f"training with data from all LLMs in iter=#{_outer_iter}")
             if args.temp_anneal:
                 temp = args.end_temp + (args.max_outer_iter - _outer_iter)/(args.max_outer_iter) * (1-args.end_temp)
-                print("[debug] temp", temp)
+                # print("[debug] temp", temp)
             else:
                 temp = 1
             if args.use_sigmoid:
@@ -2850,12 +2850,13 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     prompt = copy.deepcopy(get_pe_prompt(args))
                     for i_key, key in enumerate(prompt["labels"].keys()):
                         prompt_format_template = copy.deepcopy(prompt["labels"][key]["instruction"])
+                        # print(f"[debug] in <main.py> {prompt_format_template=}")
                         prompt["labels"][key]["instruction"] = []
                         for i_sample in range(args.gen_few_shot_k):
                             logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
                             logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
                             few_shot_samples = small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]].replace("{","").replace("}","")
-                            prompt["labels"][key]["instruction"].append(prompt_format_template.format(few_shot_samples, '{}'))
+                            prompt["labels"][key]["instruction"].append(prompt_format_template.format(few_shot_samples))
                 else: # should be a list containing all the in-context samples
                     prompt = copy.deepcopy(FEW_SHOT_PROMPT_PER_CLASS[args.task_name])
                     for i_key, key in enumerate(prompt["labels"].keys()):
@@ -3090,7 +3091,7 @@ if __name__ == "__main__":
         args.real_voting_votes = 1
         args.function_sensitivity = 1
         args.gen_sample_select = args.gen_sample_select.replace('Contrast','')
-        if 'PE' not in args.gen_sample_select:
+        if not 'PE' in args.gen_sample_select:
             args.gen_sample_select += 'PE'
     else:
         if args.real_voting_votes == 1:
