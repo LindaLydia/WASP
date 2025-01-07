@@ -166,7 +166,6 @@ def gen_syn_data_few_shot(args):
             dataset.save_to_disk(args.gen_output_dir)
     else:
         generator = DataGenerator(
-            args=args,
             task_spec=task_specification, model=model, max_length=args.gen_max_length,
             top_p=args.gen_top_p, top_k=args.gen_top_k, temperature=args.gen_temperature, do_sample=True,
             # processor=None,

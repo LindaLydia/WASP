@@ -30,11 +30,10 @@ PLACEHOLDER_QUESTION = "<X>"
 
 class QADataGenerator:
 
-    def __init__(self, args, output_dir, task_spec: Dict[str, Any], model: Union[str, 'ModelWrapper'] = None,
+    def __init__(self, output_dir, task_spec: Dict[str, Any], model: Union[str, 'ModelWrapper'] = None,
                  max_length: int = 40, min_length: int = 1, processor: Processor = None,
                  seed: int = 42, **kwargs):
 
-        self.args = args
         self.model = model
         self.task_name = task_spec["task_name"].split('-')[0]
         self.max_length = max_length
