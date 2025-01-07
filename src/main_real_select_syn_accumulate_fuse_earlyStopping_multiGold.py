@@ -3090,7 +3090,8 @@ if __name__ == "__main__":
         args.real_voting_votes = 1
         args.function_sensitivity = 1
         args.gen_sample_select = args.gen_sample_select.replace('Contrast','')
-        args.gen_sample_select += 'PE'
+        if 'PE' not in args.gen_sample_select:
+            args.gen_sample_select += 'PE'
     else:
         if args.real_voting_votes == 1:
             args.function_sensitivity = 1
