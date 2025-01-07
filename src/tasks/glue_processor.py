@@ -26,7 +26,9 @@ task_to_keys = {
     "agnews": ("test", None),
     "markednews": ("test", None),
     "stsb": ("sentence1", "sentence2"),
-    "wnli": ("sentence1", "sentence2")
+    "wnli": ("sentence1", "sentence2"),
+    "banking": ("sentence", None),
+    "banking77": ("sentence", None),
 }
 
 

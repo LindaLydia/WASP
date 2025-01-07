@@ -88,22 +88,23 @@ task_name = 'banking77'
 # task_name = 'mnliMisM'
 # task_name = 'markednews'
 task_name = 'yelpCategory'
+task_name = 'banking'
 # task_name = 'yelpRating'
 # task_name = 'openreviewCategory'
 # task_name = 'openreviewRating'
 model_names = ['gpt2-xl', 'llama-2-7b-chat-hf', 'vicuna-7b-1.5v', 'opt-6.7b', 'chatglm3-6b-base', 'flan-t5-xl'] #
 # target_folder = ['100_20', '1000_200', '1000_500', '6000_1200']
 # target_samples = [20, 200, 500, 1200]
-target_folder = ['1000_200', '6000_1200', '100_20']
-target_samples = [200, 1200, 20]
+target_folder = ['6000_1200', '3000_600', '2000_400', '1000_200', '100_20']
+target_samples = [1200, 600, 400, 200, 20]
 
 
 for model in model_names:
     for folder, num_samples in zip(target_folder, target_samples):
-        input_file_path = f'./data_accumulate_start/{task_name}/{model}/10000_2000/train.jsonl'
-        input_file_path = f'./data_accumulate_start/{task_name}/{model}/6000_1200/train.jsonl'
+        # input_file_path = f'./data_accumulate_start/{task_name}/{model}/10000_2000/train.jsonl'
+        # input_file_path = f'./data_accumulate_start/{task_name}/{model}/6000_1200/train.jsonl'
         input_file_path = f'./data_new/{task_name}/{model}/10000/train.jsonl'
-        input_file_path = f'./data_new/{task_name}/{model}/200000/train.jsonl'
+        # input_file_path = f'./data_new/{task_name}/{model}/200000/train.jsonl'
         output_file_path = f'./data_accumulate_start/{task_name}/{model}/{folder}/'
         if not os.path.exists(output_file_path):
             os.makedirs(output_file_path)

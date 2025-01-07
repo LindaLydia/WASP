@@ -28,13 +28,14 @@ TASK_NAME = 'yelpCategory'
 # TASK_NAME = 'yelpRating'
 TASK_NAME = 'openreviewCategory'
 # TASK_NAME = 'openreviewRating'
+TASK_NAME = 'banking'
 # MODEL_NAME = 'gpt2-xl'
 # MODEL_NAME = 'llama-2-7b-chat-hf'
 # MODEL_NAME = 'vicuna-7b-1.5v'
 mode = 'train'
 # mode = 'test'
 
-task_name_map = {'imdb':'imdb', 'mnli':'mnli','qnli':'qnli', 'agnews':'ag_news', 'squad':'squad', 'markednews':'markednews', 'banking77':'banking77',
+task_name_map = {'imdb':'imdb', 'mnli':'mnli','qnli':'qnli', 'agnews':'ag_news', 'squad':'squad', 'markednews':'markednews', 'banking77':'banking77', 'banking':'banking77',
                  'yelpCategory':'yelpbusiness', 'yelpRating':'yelpbusiness', 'openreviewCategory':'openreview', 'openreviewRating':'openreview'}
 
 # Define the path to your input JSONL file and output JSONL file
@@ -49,6 +50,7 @@ input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/squad/outp
 input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/squad/output/100k/'
 input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/yelpbusiness/output/yelpbusiness-x2-200k/'
 input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/openreview/output/openreview-x2-200k/'
+input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/banking/output/10k/'
 
 # Function to modify each JSON object
 def modify_json_object(json_obj, counter):
