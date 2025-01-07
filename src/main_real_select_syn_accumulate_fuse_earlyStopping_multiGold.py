@@ -38,18 +38,19 @@ from transformers import BertForSequenceClassification, BertTokenizer, ErnieForS
 from transformers import AdamW
 from transformers import get_linear_schedule_with_warmup
 
+from utils.aug_pe_utils import get_pe_prompt
 from utils.basic_utils import *
-from utils.constant import *
-from utils.early_stopping import EarlyStopping
-from utils.distance_calculation import *
-from utils.reweight_train import *
-from utils.sample_selection import *
 from utils.bert_dataset import *
+from utils.constant import *
+from utils.distance_calculation import *
+from utils.early_stopping import EarlyStopping
 from utils.FL import *
-from utils.weight_adjust import weight_decay, model_importance_estimation
+from utils.influence_utils import run_full_influence_functions
 from utils.kd_functions import kd_label, kd_label_iter, kd_label_dataset, kd_label_entropy, kd_label_entropy_aware, kd_label_aware
 from utils.mlp import *
-from utils.influence_utils import run_full_influence_functions
+from utils.reweight_train import *
+from utils.sample_selection import *
+from utils.weight_adjust import weight_decay, model_importance_estimation
 from llm_query import gen_evaluation, gen_syn_data_few_shot
 from GPT_query.few_shot_gen import gen_syn_data_few_shot_gpt_api
 
@@ -2845,6 +2846,16 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                             print(f"{prompt=}, {prompt_format_template=}")
                             print(f"{prompt_format_template.format(few_shot_samples, '{}')=}")
                             prompt["labels"][key]["instruction"].append(prompt_format_template.format(few_shot_samples, '{}'))
+                elif args.gen_aug_pe == 1:
+                    prompt = copy.deepcopy(get_pe_prompt(args))
+                    for i_key, key in enumerate(prompt["labels"].keys()):
+                        prompt_format_template = copy.deepcopy(prompt["labels"][key]["instruction"])
+                        prompt["labels"][key]["instruction"] = []
+                        for i_sample in range(args.gen_few_shot_k):
+                            logging.info(f"{i_sample=}, {prompt_samples_idx[i_key][i_sample][0]=}, {prompt_samples_idx[i_key][i_sample][1]=}")
+                            logging.info(f"prompt sample = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]]}, label = {small_train_data[prompt_samples_idx[i_key][i_sample][0]].label[prompt_samples_idx[i_key][i_sample][1]]}")
+                            few_shot_samples = small_train_data[prompt_samples_idx[i_key][i_sample][0]].text[prompt_samples_idx[i_key][i_sample][1]].replace("{","").replace("}","")
+                            prompt["labels"][key]["instruction"].append(prompt_format_template.format(few_shot_samples, '{}'))
                 else: # should be a list containing all the in-context samples
                     prompt = copy.deepcopy(FEW_SHOT_PROMPT_PER_CLASS[args.task_name])
                     for i_key, key in enumerate(prompt["labels"].keys()):
@@ -2979,7 +2990,8 @@ if __name__ == "__main__":
     parser.add_argument("--gen_max_length", type=int, default=40, help="The maximum output length for each generated text.")
     parser.add_argument("--gen_min_length", type=int, default=1, help="The minimum output length for each generated text.")
     parser.add_argument("--gen_sample_select", type=str, default='Cartography', help="['CartographyOriginal', 'CartographyWithReal ,'influenceCartography','influenceEasy','influenceAmbiguous','influence','Cartography','Easy','Ambiguous','random']") #,'influenceCartography', 'Contrast'
-    # parser.add_argument("--gen_by_prompt_contrast", type=int, default=0, help="0: only good samples are used, 1: good and bad samples are all included") #,'influenceCartography'
+    parser.add_argument("--gen_aug_pe", type=int, default=0, help="Follow Aug-PE to generate in a variational way using instructive prompt") #,'influenceCartography', 'Contrast'
+        # parser.add_argument("--gen_by_prompt_contrast", type=int, default=0, help="0: only good samples are used, 1: good and bad samples are all included") #,'influenceCartography'
     parser.add_argument("--sentence_transformer", type=str, default='sentence-t5-base', help="the specified sentence transformer for embedding the input sample, set to 'none' if the STM is desired") #,'influenceCartography'
     parser.add_argument("--voting_range", type=str, default='all', help="find nearest synthetic sample within all the syn samples or within the same class, ['all', 'class']") 
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")
@@ -3074,14 +3086,25 @@ if __name__ == "__main__":
         # args.gold_party_num = args.num_classes
         args.gold_split_dirichlet = 0.0
     
-    args.function_sensitivity = 2
+    if args.gen_aug_pe == 1:
+        args.real_voting_votes = 1
+        args.function_sensitivity = 1
+        args.gen_sample_select = args.gen_sample_select.replace('Contrast','')
+        args.gen_sample_select += 'PE'
+    else:
+        if args.real_voting_votes == 1:
+            args.function_sensitivity = 1
+        else:
+            args.function_sensitivity = 2
+        if 'Contrast' in gen_sample_select:
+            args.function_sensitivity = args.function_sensitivity * 2
     args.voting_dp_delta = 1E-5
     if args.voting_dp_epsilon >= (1E5)-(1E-5):
         # treate it as infinity
         args.voting_dp_sigma = 0.0
     else:
         # calculate N(0,sigma) using Theorem 1 from Balle&Wang(ICLM2018, Improving the Gaussian Mechanism for Differential Privacy: Analytical Calibration and Optimal Denoising)
-        args.voting_dp_sigma = args.function_sensitivity * np.sqrt(2*np.log(1.25/args.voting_dp_delta)) * np.sqrt(args.steps) / (args.voting_dp_epsilon * np.sqrt(args.gold_party_num))
+        args.voting_dp_sigma = (args.function_sensitivity) * np.sqrt(2*np.log(1.25/args.voting_dp_delta)) * np.sqrt(args.steps) / (args.voting_dp_epsilon * np.sqrt(args.gold_party_num))
     print(f"({args.voting_dp_epsilon},{args.voting_dp_delta})-DP of {args.gold_party_num} collaborative data party with Gaussian noise following N(0,{args.voting_dp_sigma})")
 
     if args.unbalance_generation == False:
