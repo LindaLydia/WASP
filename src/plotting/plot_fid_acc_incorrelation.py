@@ -27,11 +27,11 @@ FID = [
 
 
 def plot_fid_acc_incorrelation(acc_results, fid_results, plm_names, idx_list):
-    fig, axs = plt.subplots(nrows=1, ncols=len(plm_names), figsize=(16, 3), sharex=False, sharey=False)
+    fig, axs = plt.subplots(nrows=1, ncols=len(plm_names), figsize=(10, 3), sharex=False, sharey=False)
     for _i, (_acc, _fid, _plm) in enumerate(zip(acc_results, fid_results, plm_names)):
         x = np.arange(0,len(_acc),1)
         # 绘制第一条线，使用左侧 y 轴
-        axs[_i].plot(x, _acc, color='#4C8B8F', marker='o', linestyle='--', markersize=6, linewidth=4, label='ACC')
+        axs[_i].plot(x, _acc, color='#4C8B8F', marker='o', linestyle='-', markersize=6, linewidth=4, label='ACC')
         axs[_i].set_xlabel('Iteration', fontsize=20)
         axs[_i].set_ylabel('ACC', color='#4C8B8F', fontsize=20)
         axs[_i].tick_params(axis='y', labelcolor='#4C8B8F')
@@ -39,14 +39,21 @@ def plot_fid_acc_incorrelation(acc_results, fid_results, plm_names, idx_list):
         # 创建第二个轴对象，共享 x 轴，使用不同的 y 轴
         ax2 = axs[_i].twinx()
         # 绘制第二条线，使用右侧 y 轴
-        ax2.plot(x, _fid, color='#C76248', marker='^', linestyle=':', markersize=6, linewidth=4, label='FID')
+        ax2.plot(x, _fid, color='#C76248', marker='s', linestyle=':', markersize=6, linewidth=4, label='FID')
         ax2.set_ylabel('FID', color='#C76248', fontsize=20)
         ax2.tick_params(axis='y', labelcolor='#C76248')
 
+        axs[_i].set_xlim([0,4])
+        x_ticks = [0,1,2,3,4]
+        x_tick_labels = [f'{tick:.0f}' for tick in x_ticks]
+
         # 显示图例
-        lines1, labels1 = axs[_i].get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        axs[_i].legend(lines1 + lines2, labels1 + labels2, loc='best')
+        if _plm == 'Vicuna':
+            lines1, labels1 = axs[_i].get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            # axs[_i].legend(lines1 + lines2, labels1 + labels2, loc='best')
+            axs[_i].legend(lines1 + lines2, labels1 + labels2, loc='upper center')
+            
 
         axs[_i].set_title(_plm, fontsize=21)
 

@@ -1049,6 +1049,7 @@ def calculate_and_save_tsne(args):
         embedding_model = SentenceTransformer(MODEL_PATH[args.small_model_name])
 
     train_data_list, train_iter_list = load_data(args, batch_size=8, backward_batch_size=1000, device=args.device, gold_data_path=f'./data/{args.task_name}/std/', syn_data_path=SYN_DATA_PATH, vectors=None, use_tree=False, num_use_samples_inner=args.num_use_samples_inner, num_use_samples_outer=100, shuffle_train=True)
+    # args.train_data_list, args.train_iter_list = train_data_list, train_iter_list
     print(f"{len(train_data_list)=}, {len(train_iter_list)=}")
     embedding_list = []
     label_list = []
@@ -1178,6 +1179,45 @@ def plot_dynamics(args, labels, embeddings_label, label_unique_values):
             plot_data_map(train_dy_metrics[plm], f'{plot_dy_save_dir}/step{i_step}_{plm}_graphOnly.png', title=f'{PLM_names[plm]}', show_hist=False, model='bert-base-uncased')
             # plot_data_map(train_dy_metrics[plm], f'{plot_dy_save_dir}/{plm}.pdf', title=f'{PLM_names[plm]}', show_hist=True, model='bert-base-uncased')
             plot_data_map(train_dy_metrics[plm], f'{plot_dy_save_dir}/step{i_step}_{plm}.png', title=f'{PLM_names[plm]}', show_hist=True, model='bert-base-uncased')
+
+
+def plot_embedding_length_distributions(args, embeddings):
+    PLM_names = {'gpt2-xl':'GPT2', 'llama-2-7b-chat-hf':'Llama2', 'vicuna-7b-1.5v':'Vicuna', 'opt-6.7b':'OPT', 'chatglm3-6b-base':'ChatGLM3', 'flan-t5-xl':'Flan-T5', 'gpt-3.5-turbo-instruct':'GPT3.5', 'gpt-4-turbo-preview':'GPT4'}
+
+    if 'bert' in args.small_model_name:
+        init_model = BertModel.from_pretrained(MODEL_PATH[args.small_model_name])
+        args.tokenizer = BertTokenizer.from_pretrained(MODEL_PATH[args.small_model_name])
+    elif 'sentence' in args.small_model_name:
+        embedding_model = SentenceTransformer(MODEL_PATH[args.small_model_name])
+    train_data_list, train_iter_list = load_data(args, batch_size=8, backward_batch_size=1000, device=args.device, gold_data_path=f'./data/{args.task_name}/std/', syn_data_path=SYN_DATA_PATH, vectors=None, use_tree=False, num_use_samples_inner=args.num_use_samples_inner, num_use_samples_outer=100, shuffle_train=True)
+
+    fig, axs = plt.subplots(nrows=1, ncols=args.steps+1, figsize=(17, 3), sharex=True, sharey=True)
+    # args.train_data_list, args.train_iter_list
+    if args.consider_real:
+        real_embeddings = train_data_list[-1].text
+        # print(f"{real_embeddings.shape}")
+        real_length = np.asarray([len(_emb) for _emb in real_embeddings])
+        print(f"{real_length=}")
+        for i_step in range(1,args.steps+2):
+            syn_embeddings = []
+            for i in range(args.len_LLM):
+                start_idx = 0 if i_step==1 else args.step_sample_count[i_step-2][i]
+                syn_embeddings = syn_embeddings + train_data_list[i].text[start_idx:args.step_sample_count[i_step-1][i]]
+                # syn_embeddings.append(embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]])
+            syn_length = np.asarray([len(_emb) for _emb in syn_embeddings])
+            print(f"{syn_length=}")
+            axs[i_step-1].hist(real_length, bins=30, color='skyblue', edgecolor='skyblue', alpha=0.7)
+            axs[i_step-1].hist(syn_length, bins=30, color='yellowgreen', edgecolor='yellowgreen', alpha=0.3)
+            axs[i_step-1].set_title(f'PE iteration {i_step-1}', fontsize=21)
+            if i_step == 1:
+                axs[0].set_ylabel('Density', fontsize=20)
+
+    fig.tight_layout()
+    plt.tight_layout()
+    if not os.path.exists(f'./figure/introduction/text_converge/{args.folder_name}/'):
+        os.makedirs(f'./figure/introduction/text_converge/{args.folder_name}/')
+    print(f'./figure/introduction/text_converge/{args.folder_name}/{args.llms}.png')
+    plt.savefig(f'./figure/introduction/text_converge/{args.folder_name}/{args.llms}.png',dpi=200)
 
 
 
@@ -1320,10 +1360,10 @@ if __name__ == "__main__":
     # total_l2, within_class_l2, total_cos, within_class_cos = calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
     # print(f"L2 & cosine-similarity results: {total_l2=}, {within_class_l2=}, {total_cos=}, {within_class_cos=}")
 
-    total_fid, within_class_fid = calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    print(f"FID results: {total_fid=}, {within_class_fid=}")
-    total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
+    # total_fid, within_class_fid = calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    # print(f"FID results: {total_fid=}, {within_class_fid=}")
+    # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    # print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
 
     # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings_2d, labels, embeddings_label, label_unique_values)
     # print(f"FID for 2-major components, sample delta results: {total_fid=}, {within_class_fid=}")
@@ -1331,3 +1371,5 @@ if __name__ == "__main__":
     # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
 
     # plot_dynamics(args, labels, embeddings_label, label_unique_values)
+
+    plot_embedding_length_distributions(args, embeddings)
