@@ -1,0 +1,156 @@
+{
+    "task_name": "yelpbusiness",
+    "stage": "x2",
+    "labels": {
+        "0": {
+            "instruction": "A review for a business item in the field of Arts & Entertainment of 1.0 star(s) is: \""
+        },
+        "1": {
+            "instruction": "A review for a business item in the field of Arts & Entertainment of 2.0 star(s) is: \""
+        },
+        "2": {
+            "instruction": "A review for a business item in the field of Arts & Entertainment of 3.0 star(s) is: \""
+        },
+        "3": {
+            "instruction": "A review for a business item in the field of Arts & Entertainment of 4.0 star(s) is: \""
+        },
+        "4": {
+            "instruction": "A review for a business item in the field of Arts & Entertainment of 5.0 star(s) is: \""
+        },
+        "5": {
+            "instruction": "A review for a business item in the field of Bars of 1.0 star(s) is: \""
+        },
+        "6": {
+            "instruction": "A review for a business item in the field of Bars of 2.0 star(s) is: \""
+        },
+        "7": {
+            "instruction": "A review for a business item in the field of Bars of 3.0 star(s) is: \""
+        },
+        "8": {
+            "instruction": "A review for a business item in the field of Bars of 4.0 star(s) is: \""
+        },
+        "9": {
+            "instruction": "A review for a business item in the field of Bars of 5.0 star(s) is: \""
+        },
+        "10": {
+            "instruction": "A review for a business item in the field of Beauty & Spas of 1.0 star(s) is: \""
+        },
+        "11": {
+            "instruction": "A review for a business item in the field of Beauty & Spas of 2.0 star(s) is: \""
+        },
+        "12": {
+            "instruction": "A review for a business item in the field of Beauty & Spas of 3.0 star(s) is: \""
+        },
+        "13": {
+            "instruction": "A review for a business item in the field of Beauty & Spas of 4.0 star(s) is: \""
+        },
+        "14": {
+            "instruction": "A review for a business item in the field of Beauty & Spas of 5.0 star(s) is: \""
+        },
+        "15": {
+            "instruction": "A review for a business item in the field of Event Planning & Services of 1.0 star(s) is: \""
+        },
+        "16": {
+            "instruction": "A review for a business item in the field of Event Planning & Services of 2.0 star(s) is: \""
+        },
+        "17": {
+            "instruction": "A review for a business item in the field of Event Planning & Services of 3.0 star(s) is: \""
+        },
+        "18": {
+            "instruction": "A review for a business item in the field of Event Planning & Services of 4.0 star(s) is: \""
+        },
+        "19": {
+            "instruction": "A review for a business item in the field of Event Planning & Services of 5.0 star(s) is: \""
+        },
+        "20": {
+            "instruction": "A review for a business item in the field of Grocery of 1.0 star(s) is: \""
+        },
+        "21": {
+            "instruction": "A review for a business item in the field of Grocery of 2.0 star(s) is: \""
+        },
+        "22": {
+            "instruction": "A review for a business item in the field of Grocery of 3.0 star(s) is: \""
+        },
+        "23": {
+            "instruction": "A review for a business item in the field of Grocery of 4.0 star(s) is: \""
+        },
+        "24": {
+            "instruction": "A review for a business item in the field of Grocery of 5.0 star(s) is: \""
+        },
+        "25": {
+            "instruction": "A review for a business item in the field of Health & Medical of 1.0 star(s) is: \""
+        },
+        "26": {
+            "instruction": "A review for a business item in the field of Health & Medical of 2.0 star(s) is: \""
+        },
+        "27": {
+            "instruction": "A review for a business item in the field of Health & Medical of 3.0 star(s) is: \""
+        },
+        "28": {
+            "instruction": "A review for a business item in the field of Health & Medical of 4.0 star(s) is: \""
+        },
+        "29": {
+            "instruction": "A review for a business item in the field of Health & Medical of 5.0 star(s) is: \""
+        },
+        "30": {
+            "instruction": "A review for a business item in the field of Home & Garden of 1.0 star(s) is: \""
+        },
+        "31": {
+            "instruction": "A review for a business item in the field of Home & Garden of 2.0 star(s) is: \""
+        },
+        "32": {
+            "instruction": "A review for a business item in the field of Home & Garden of 3.0 star(s) is: \""
+        },
+        "33": {
+            "instruction": "A review for a business item in the field of Home & Garden of 4.0 star(s) is: \""
+        },
+        "34": {
+            "instruction": "A review for a business item in the field of Home & Garden of 5.0 star(s) is: \""
+        },
+        "35": {
+            "instruction": "A review for a business item in the field of Hotels & Travel of 1.0 star(s) is: \""
+        },
+        "36": {
+            "instruction": "A review for a business item in the field of Hotels & Travel of 2.0 star(s) is: \""
+        },
+        "37": {
+            "instruction": "A review for a business item in the field of Hotels & Travel of 3.0 star(s) is: \""
+        },
+        "38": {
+            "instruction": "A review for a business item in the field of Hotels & Travel of 4.0 star(s) is: \""
+        },
+        "39": {
+            "instruction": "A review for a business item in the field of Hotels & Travel of 5.0 star(s) is: \""
+        },
+        "40": {
+            "instruction": "A review for a business item in the field of Restaurants of 1.0 star(s) is: \""
+        },
+        "41": {
+            "instruction": "A review for a business item in the field of Restaurants of 2.0 star(s) is: \""
+        },
+        "42": {
+            "instruction": "A review for a business item in the field of Restaurants of 3.0 star(s) is: \""
+        },
+        "43": {
+            "instruction": "A review for a business item in the field of Restaurants of 4.0 star(s) is: \""
+        },
+        "44": {
+            "instruction": "A review for a business item in the field of Restaurants of 5.0 star(s) is: \""
+        },
+        "45": {
+            "instruction": "A review for a business item in the field of Shopping of 1.0 star(s) is: \""
+        },
+        "46": {
+            "instruction": "A review for a business item in the field of Shopping of 2.0 star(s) is: \""
+        },
+        "47": {
+            "instruction": "A review for a business item in the field of Shopping of 3.0 star(s) is: \""
+        },
+        "48": {
+            "instruction": "A review for a business item in the field of Shopping of 4.0 star(s) is: \""
+        },
+        "49": {
+            "instruction": "A review for a business item in the field of Shopping of 5.0 star(s) is: \""
+        }
+    }
+}

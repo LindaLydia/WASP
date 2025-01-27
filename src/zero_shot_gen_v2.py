@@ -385,7 +385,7 @@ if __name__ == "__main__":
                         help="Min length of generated text.")
 
     parser.add_argument("--i_step", default=0, type=int)
-    parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
+    parser.add_argument('--llms', default=['gpt-3.5-turbo-instruct', 'gpt-4-turbo-preview', 'gpt-4o'], nargs='+', type=str)
 
     args = parser.parse_args()
 
@@ -432,14 +432,17 @@ if __name__ == "__main__":
     #     args.gen_input_file = './utils/wiki_data/wiki_short.jsonl'
     # args.llms == ['gpt-3.5-turbo-instruct', 'gpt-4-turbo-preview']
     # args.gen_total_num = [10000, 10000]
-    args.task_name = 'imdb'
-    args.llms == ['gpt-4o']
+    # args.task_name = 'imdb'
+    # args.llms == ['gpt-4o']
+    args.task_name = 'yelpbusiness'
+    # args.llms == ['gpt-3.5-turbo-instruct', 'gpt-4-turbo-preview', 'gpt-4o']
     args.gen_total_num = [10000]
     for im in range(len(args.llms)):        
         args.gen_output_dir = f'./data_new/{args.task_name}/{args.llms[im]}/{args.gen_total_num[im]}/' # "The output directory to which the generated dataset is saved"
         if not os.path.exists(args.gen_output_dir):
             os.makedirs(args.gen_output_dir)
-        args.gen_task_file = f'./tasks/{args.task_name}/{args.task_name}-x2_gpt4.json' # "A json file providing the instructions and other information required for dataset generation. "
+        # args.gen_task_file = f'./tasks/{args.task_name}/{args.task_name}-x2_gpt4.json' # "A json file providing the instructions and other information required for dataset generation. "
+        args.gen_task_file = f'./tasks/{args.task_name}/{args.task_name}-x2_gpt.json' # "A json file providing the instructions and other information required for dataset generation. "
         args.gen_model_name = args.llms[im] # "The pretrained model to use for dataset generation. Currently, only variants of GPT2 are supported."
         for _ in range(200):
             args.gen_num_entries_per_input = args.gen_total_num[im]//200
