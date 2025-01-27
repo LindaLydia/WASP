@@ -3096,6 +3096,8 @@ if __name__ == "__main__":
     else:
         if args.real_voting_votes == 1:
             args.function_sensitivity = 1
+        elif 1 < args.real_voting_votes < 6:
+            args.function_sensitivity = 2 - 1/(2^(args.real_voting_votes-1))
         else:
             args.function_sensitivity = 2
         if 'Contrast' in args.gen_sample_select:

@@ -69,7 +69,7 @@ def plot_vary_J(results, ncol=2, nrow=2, fig_size=(8,4)):
         x_tick_labels = [f'{tick:.0f}' for tick in x_ticks]
         ax.set_xticks(x_ticks)
         ax.set_xticklabels(x_tick_labels,fontsize=15)
-        ax.set_ylabel(fig_labels[i],fontsize=17)
+        ax.set_ylabel(fig_labels[i] ,fontsize=17)
         ax.set_yticks(x, legend_list, fontsize=15)
 
     # handles, labels = axes[0, 0].get_legend_handles_labels()
@@ -87,5 +87,6 @@ if __name__ == '__main__':
     # plot_vary_J(results, nrow=4, ncol=1, fig_size=(6,12))
 
     plot_vary_J(results, nrow=2, ncol=2, fig_size=(12,5))
+    plot_vary_J(results, nrow=1, ncol=4, fig_size=(20,3))
     # plot_vary_J([results[0],results[-1]], nrow=1, ncol=2, fig_size=(8,2.5))
     # plot_vary_J([results[0],results[-1]], nrow=1, ncol=2, fig_size=(8,2.5))

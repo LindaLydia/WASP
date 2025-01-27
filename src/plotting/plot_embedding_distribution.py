@@ -634,6 +634,102 @@ def plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embedding
     # plt.savefig(f'./figure/distribution/3D/{args.model_name_sample}.png',dpi=200)
 
 
+def calculate_embedding_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, count=8):
+
+    # Plot the 2D scatter plot, with/without test dataset, consider label, all label in 1 figure
+    # fig = plt.figure(figsize=(8, 6))
+    LLM_names_mapping_dict = {'gpt2-xl':'GPT2', 'llama-2-7b-chat-hf':'Llama2', 'vicuna-7b-1.5v':'Vicuna', 'opt-6.7b':'OPT', 'chatglm3-6b-base':'ChatGLM3', 'flan-t5-xl':'Flan-T5', 'gpt-3.5-turbo-instruct':'GPT-3.5', 'gpt-4-turbo-preview':'GPT-4', 'real':'real'}
+    LLM_names = [LLM_names_mapping_dict[llm] for llm in args.llms] + ['real']
+
+
+    gold_embedding, gold_label = embeddings[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1], :], labels[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1]]
+    gold_embedding = torch.tensor(gold_embedding)
+    gold_embedding_list = [gold_embedding]
+    gold_label_list = [gold_label]
+    print(f"[debug] {gold_embedding.shape=}, {len(gold_label)=}")
+    # for i in range((args.len_LLM+1 if args.consider_real else args.len_LLM)):
+    for i in range((args.len_LLM)):
+        syn_embedding = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i+1], :]
+        syn_embedding = torch.tensor(syn_embedding)
+        syn_label = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i+1]]
+        print(f"[debug] {syn_embedding.shape=}, {len(syn_label)=}")
+
+        furthest_sample_voting = [0.0]*len(syn_label)
+        furthest_sample_voting_per_party = [[0.0]*len(syn_label) for _ in range(1)]
+
+        # ########## each data party vote using local private data ##########
+        args.real_voting_votes = 8
+        for i_party, (gold_embedding, gold_label) in enumerate(zip(gold_embedding_list, gold_label_list)): # nearest_sample_voting_per_party      
+            unique_gold_label = np.unique(gold_label)
+            syn_embedding_each_class = {}
+            for _u_label in unique_gold_label:
+                syn_embedding_each_class[_u_label] = (syn_embedding[syn_label==_u_label], np.where(syn_label==_u_label)[0])
+            # print(f"{syn_embedding_each_class=}")
+            for _gold, _gold_label in zip(gold_embedding, gold_label):
+                distances = torch.sqrt(((syn_embedding_each_class[_gold_label][0] - _gold)**2).sum(dim=-1))
+                # print(f"{distances.shape}")
+                # _, top_k_indices = torch.topk(distances, k=min(args.real_voting_votes,len(syn_embedding_each_class[_gold_label][1])), largest=False)
+                # for _i, _indice in enumerate(top_k_indices):
+                #     print(f"{_indice=} in class#{_gold_label}, which should be mapped to {syn_embedding_each_class[_gold_label][1][_indice]} in the total dataset")
+                #     nearest_sample_voting_per_party[i_party][syn_embedding_each_class[_gold_label][1][_indice]] += 1/(2**_i)
+                _, top_k_indices = torch.topk(distances, k=min(args.real_voting_votes,len(syn_embedding_each_class[_gold_label][1])), largest=True)
+                for _i, _indice in enumerate(top_k_indices):
+                    # print(f"{_indice=} in class#{_gold_label}, which should be mapped to {syn_embedding_each_class[_gold_label][1][_indice]} in the total dataset")
+                    furthest_sample_voting_per_party[i_party][syn_embedding_each_class[_gold_label][1][_indice]] += 1/(2**_i)
+        # ########## each data party vote using local private data ##########
+
+
+        # # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
+        # SIGMA = args.voting_dp_sigma
+        # # ### #
+        # nearest_sample_voting_per_party = np.asarray(nearest_sample_voting_per_party)
+        # for i_party in range(len(nearest_sample_voting_per_party)):
+        #     nearest_sample_voting_per_party[i_party] += np.random.standard_normal(size=nearest_sample_voting_per_party[i_party].shape)*SIGMA
+        # nearest_sample_voting = np.sum(nearest_sample_voting_per_party, axis=0)
+        # # ### #
+        # furthest_sample_voting_per_party = np.asarray(furthest_sample_voting_per_party)
+        # for i_party in range(len(furthest_sample_voting_per_party)):
+        #     furthest_sample_voting_per_party[i_party] += np.random.standard_normal(size=furthest_sample_voting_per_party[i_party].shape)*SIGMA
+        furthest_sample_voting = np.sum(furthest_sample_voting_per_party, axis=0)
+        # # ########## aggregation of nearest_sample_voting_per_party to nearest_sample_voting ##########
+
+        furthest_sample_voting = np.asarray(furthest_sample_voting)
+
+        total_num_classes = 2 if args.task_name=='imdb' else 5
+        selected_sample_model_position_list = {"nearest": [[] for _ in range(total_num_classes)], "furthest": [[] for _ in range(total_num_classes)]}
+        for i_class in range(total_num_classes):
+            # ################## furthest bad samples ##################
+            furthest_sample_voting_for_class = [0.0]*len(syn_label)
+            furthest_sample_voting_for_class = [furthest_sample_voting[_i]*(1.0 if syn_label[_i]==i_class else 0.0) for _i in range(len(syn_label))]
+            # print(f"[debug] after class masking, {furthest_sample_voting_for_class=}")
+            furthest_sample_voting_for_class = np.asarray(furthest_sample_voting_for_class)
+            # furthest_sample_voting_for_class += SMALL_EPSILON
+            furthest_sample_voting_for_class =  furthest_sample_voting_for_class / np.sum(furthest_sample_voting_for_class)
+
+            # ########### sample the top-<#count> samples with the highest probability value (furthest_sample_voting value) ###########
+            if np.count_nonzero(furthest_sample_voting_for_class) < count:
+                print(f"None zero values in furthest_sample_voting_for_class is {np.count_nonzero(furthest_sample_voting_for_class)}, < number of required in-context sample {count}")
+                top_k_syn_samples_indices = np.random.choice([i for i in range(len(furthest_sample_voting_for_class))], size=count, p=furthest_sample_voting_for_class, replace=True)
+            else:
+                value_index_pairs = [(furthest_sample_voting_for_class[i], i) for i in range(len(furthest_sample_voting_for_class))]  
+                sorted_pairs = sorted(value_index_pairs, key=lambda x: x[0], reverse=True)  
+                # print(f"{count=}")
+                top_k_syn_samples_indices = [pair[1] for pair in sorted_pairs[:count]] 
+            print(f"{top_k_syn_samples_indices=}")
+            # ########### sample the top-<#count> samples with the highest probability value (furthest_sample_voting_for_class value) ###########
+            # change into [(im, ic), (im, ic), ..., (im, ic)] format
+            for ic in range(len(top_k_syn_samples_indices)):
+                model_idx = -1
+                for im in range(args.len_LLM):
+                    if args.accumulate_sampels[-1][im] <= top_k_syn_samples_indices[ic] < args.accumulate_sampels[-1][im+1]:
+                        model_idx = im
+                        break
+                assert model_idx != -1, f"[ERROR] sample #{top_k_syn_samples_indices[ic]} not mapped into {args.accumulate_sampels[-1]}"
+                selected_sample_model_position_list["furthest"][i_class].append((model_idx,(top_k_syn_samples_indices[ic]-args.accumulate_sampels[-1][model_idx]).item()))
+            # ################## furthest bad samples ##################
+            print(f'{i_class=}, {selected_sample_model_position_list["furthest"][i_class]=}')
+
+
 def calculate_KL(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values):
     if args.consider_real:
         # as the real sample size is small, decrease the embedding dimention
@@ -1196,21 +1292,28 @@ def plot_embedding_length_distributions(args, embeddings):
     if args.consider_real:
         real_embeddings = train_data_list[-1].text
         # print(f"{real_embeddings.shape}")
-        real_length = np.asarray([len(_emb) for _emb in real_embeddings])
+        # real_length = np.asarray([len(_emb) for _emb in real_embeddings])
+        real_length = np.asarray([len(_emb.split()) for _emb in real_embeddings])
         print(f"{real_length=}")
         for i_step in range(1,args.steps+2):
             syn_embeddings = []
             for i in range(args.len_LLM):
                 start_idx = 0 if i_step==1 else args.step_sample_count[i_step-2][i]
+                start_idx = 0
                 syn_embeddings = syn_embeddings + train_data_list[i].text[start_idx:args.step_sample_count[i_step-1][i]]
                 # syn_embeddings.append(embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]])
-            syn_length = np.asarray([len(_emb) for _emb in syn_embeddings])
+            # syn_length = np.asarray([len(_emb) for _emb in syn_embeddings])
+            syn_length = np.asarray([len(_emb.split()) for _emb in syn_embeddings])
             print(f"{syn_length=}")
-            axs[i_step-1].hist(real_length, bins=30, color='skyblue', edgecolor='skyblue', alpha=0.7)
-            axs[i_step-1].hist(syn_length, bins=30, color='yellowgreen', edgecolor='yellowgreen', alpha=0.3)
+            axs[i_step-1].hist(real_length, density=True, bins=30, color='skyblue', edgecolor='skyblue', alpha=0.7, label='real(private)')
+            axs[i_step-1].hist(syn_length, density=True, bins=30, color='yellowgreen', edgecolor='yellowgreen', alpha=0.3, label='synthetic')
             axs[i_step-1].set_title(f'PE iteration {i_step-1}', fontsize=21)
+            if args.task_name == 'yelpRating':
+                axs[i_step-1].set_ylim([0.0,0.065])
             if i_step == 1:
                 axs[0].set_ylabel('Density', fontsize=20)
+            if i_step == args.steps+1:
+                axs[i_step-1].legend(fontsize=13)
 
     fig.tight_layout()
     plt.tight_layout()
@@ -1218,6 +1321,44 @@ def plot_embedding_length_distributions(args, embeddings):
         os.makedirs(f'./figure/introduction/text_converge/{args.folder_name}/')
     print(f'./figure/introduction/text_converge/{args.folder_name}/{args.llms}.png')
     plt.savefig(f'./figure/introduction/text_converge/{args.folder_name}/{args.llms}.png',dpi=200)
+
+    # only start and end
+    fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(6.8, 2), sharex=True, sharey=True)
+    # args.train_data_list, args.train_iter_list
+    if args.consider_real:
+        real_embeddings = train_data_list[-1].text
+        # print(f"{real_embeddings.shape}")
+        # real_length = np.asarray([len(_emb) for _emb in real_embeddings])
+        real_length = np.asarray([len(_emb.split()) for _emb in real_embeddings])
+        print(f"{real_length=}")
+        for i_step in [1,args.steps+1]:
+            axs_idx = 0 if i_step==1 else 1
+            syn_embeddings = []
+            for i in range(args.len_LLM):
+                start_idx = 0 if i_step==1 else args.step_sample_count[i_step-2][i]
+                start_idx = 0
+                syn_embeddings = syn_embeddings + train_data_list[i].text[start_idx:args.step_sample_count[i_step-1][i]]
+                # syn_embeddings.append(embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]])
+            # syn_length = np.asarray([len(_emb) for _emb in syn_embeddings])
+            syn_length = np.asarray([len(_emb.split()) for _emb in syn_embeddings])
+            print(f"{syn_length=}")
+            axs[axs_idx].hist(real_length, density=True, bins=30, color='skyblue', edgecolor='skyblue', alpha=0.7, label='real(private)')
+            axs[axs_idx].hist(syn_length, density=True, bins=30, color='yellowgreen', edgecolor='yellowgreen', alpha=0.5, label='synthetic')
+            axs[axs_idx].set_title(f'PE iteration {i_step-1}', fontsize=21)
+            if args.task_name == 'yelpRating':
+                axs[axs_idx].set_ylim([0.0,0.05])
+            if i_step == 1:
+                axs[0].set_ylabel('Density', fontsize=20)
+            if i_step == args.steps+1:
+                axs[axs_idx].legend(fontsize=13)
+
+    fig.tight_layout()
+    plt.tight_layout()
+    if not os.path.exists(f'./figure/introduction/text_converge/start_end/{args.folder_name}/'):
+        os.makedirs(f'./figure/introduction/text_converge/start_end/{args.folder_name}/')
+    print(f'./figure/introduction/text_converge/start_end/{args.folder_name}/{args.llms}.png')
+    plt.savefig(f'./figure/introduction/text_converge/start_end/{args.folder_name}/{args.llms}.png',dpi=200)
+
 
 
 
@@ -1301,9 +1442,9 @@ if __name__ == "__main__":
 
     save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
 
-    # ############## calculate and save tsne ##############
-    # calculate_and_save_tsne(args)
-    # ############## calculate and save tsne ##############
+    ############## calculate and save tsne ##############
+    calculate_and_save_tsne(args)
+    ############## calculate and save tsne ##############
 
     # assert 1 == 0
 
@@ -1360,15 +1501,17 @@ if __name__ == "__main__":
     # total_l2, within_class_l2, total_cos, within_class_cos = calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
     # print(f"L2 & cosine-similarity results: {total_l2=}, {within_class_l2=}, {total_cos=}, {within_class_cos=}")
 
-    # total_fid, within_class_fid = calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    # print(f"FID results: {total_fid=}, {within_class_fid=}")
-    # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    # print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
+    total_fid, within_class_fid = calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    print(f"FID results: {total_fid=}, {within_class_fid=}")
+    total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
 
     # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings_2d, labels, embeddings_label, label_unique_values)
     # print(f"FID for 2-major components, sample delta results: {total_fid=}, {within_class_fid=}")
     
     # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
+    
+    # calculate_embedding_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, count=8)
 
     # plot_dynamics(args, labels, embeddings_label, label_unique_values)
 
