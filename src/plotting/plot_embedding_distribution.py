@@ -1442,9 +1442,9 @@ if __name__ == "__main__":
 
     save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
 
-    # ############## calculate and save tsne ##############
-    # calculate_and_save_tsne(args)
-    # ############## calculate and save tsne ##############
+    ############## calculate and save tsne ##############
+    calculate_and_save_tsne(args)
+    ############## calculate and save tsne ##############
 
     # assert 1 == 0
 
@@ -1501,10 +1501,10 @@ if __name__ == "__main__":
     # total_l2, within_class_l2, total_cos, within_class_cos = calculate_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
     # print(f"L2 & cosine-similarity results: {total_l2=}, {within_class_l2=}, {total_cos=}, {within_class_cos=}")
 
-    # total_fid, within_class_fid = calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    # print(f"FID results: {total_fid=}, {within_class_fid=}")
-    # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
-    # print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
+    total_fid, within_class_fid = calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    print(f"FID results: {total_fid=}, {within_class_fid=}")
+    total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values)
+    print(f"FID for sample delta results: {total_fid=}, {within_class_fid=}")
 
     # total_fid, within_class_fid = calculate_fid_metrics_sample_delta(args, embeddings_2d, embeddings_2d, labels, embeddings_label, label_unique_values)
     # print(f"FID for 2-major components, sample delta results: {total_fid=}, {within_class_fid=}")
