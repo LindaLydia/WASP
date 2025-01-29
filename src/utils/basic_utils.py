@@ -219,7 +219,7 @@ def split_gold_data_for_parties(args, total_data):
                 _dataset.clear_and_copy_dataset([total_data], list(related_data_idx.cpu().numpy()), 1, new_idx=True, gold_copy=True)
                 data_list.append(copy.deepcopy(_dataset))
         else:
-            sample_index_list = dirichlet_split(args, args.gold_split_dirichlet, args.gold_party_num, total_data)
+            sample_index_list = dirichlet_split(args, args.gold_split_dirichlet, args.gold_party_num, total_data, sample_limit_per_client=args.gold_sample_limit_per_client)
             for i_party in range(args.gold_party_num):
                 _dataset = TokenizedDataset(
                     file_path=(''),
