@@ -7,7 +7,7 @@ import random
 import copy
 
 
-def dirichlet_split(args, alpha, num_clients, total_data):
+def dirichlet_split(args, alpha, num_clients, total_data, sample_limit_per_client=-1):
     # Client data indices
     client_indices = [[len(total_data)-(i+1)] for i in range(num_clients)]
     
@@ -22,13 +22,32 @@ def dirichlet_split(args, alpha, num_clients, total_data):
         
         # Sample from the Dirichlet distribution to get the proportions for each client
         proportions = np.random.dirichlet([alpha] * num_clients)
+        print(f"{proportions=}")
         # Scale proportions to the number of available data points in this class
-        proportions = (proportions * len(indices)).astype(int)
+        proportions = (proportions * len(indices)+0.5).astype(int)
         
         # Ensure that we assign all data points
         for i in range(0, num_clients-1):
             client_indices[i].extend(indices[sum(proportions[:i]):sum(proportions[:i+1])])
         client_indices[num_clients-1].extend(indices[sum(proportions[:-1]):])
+
+    if sample_limit_per_client > 0:
+        checked = False
+        while checked == False:
+            checked = True
+            for i_c in range(num_clients):
+                if len(client_indices[i_c]) > sample_limit_per_client:
+                    checked = False
+                    random.shuffle(client_indices[i_c])
+                    too_much_sample_idx = 0
+                    j_c = (i_c + 1) % num_clients
+                    for _ in range(0, len(client_indices[i_c])-sample_limit_per_client, 1):
+                        while len(client_indices[j_c]) >= sample_limit_per_client:
+                            j_c += 1
+                        client_indices[j_c].append(client_indices[i_c][sample_limit_per_client+too_much_sample_idx])
+                        too_much_sample_idx += 1
+                        j_c += 1
+                    client_indices[i_c] = client_indices[i_c][:sample_limit_per_client]
 
     # print(f"{client_indices=}")
     return client_indices

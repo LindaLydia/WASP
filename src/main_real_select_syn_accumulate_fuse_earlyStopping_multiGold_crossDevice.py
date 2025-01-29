@@ -2186,37 +2186,56 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
     best_theta_total = theta_total # <list>
 
     if args.i_step == 0:
-        # evaluate w/o syn data setting
-        gold_theta = [torch.full([len(gold_iter[_i_party].dataset)], 0.5, dtype=torch.float, device=device) for _i_party in range(args.gold_party_num)] #, requires_grad=True
-        current_outer_iter_trained_more_steps_model_after_gold = []
-        for i_party in range(args.gold_party_num):
-            print(f"training STM with gold data from data party #{i_party}")
-            diverged = True # diverged==True means loss==nan, which means the training failed
-            while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, init_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
-                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, init_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
-            # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
-            # print(f"[debug] {args.use_dev_outer}")
-            if args.stochastic_outer and args.subset_outer:
-                if args.use_dev_outer:
-                    valid_loader = construct_outer_subloader(args, dev_data_all)
-                else:
-                    valid_loader = construct_outer_subloader(args, train_data) # currently using this one
-            current_outer_iter_trained_more_steps_model_after_gold.append(model_copy_converged_ft)
+        # # evaluate w/o syn data setting
+        # gold_theta = [torch.full([len(gold_iter[_i_party].dataset)], 0.5, dtype=torch.float, device=device) for _i_party in range(args.gold_party_num)] #, requires_grad=True
+        # current_outer_iter_trained_more_steps_model_after_gold = []
+        # for i_party in range(args.gold_party_num):
+        #     print(f"training STM with gold data from data party #{i_party}")
+        #     diverged = True # diverged==True means loss==nan, which means the training failed
+        #     while diverged:
+        #         model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, init_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader)
+        #         print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+        #         model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, init_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader)
+        #     # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+        #     # print(f"[debug] {args.use_dev_outer}")
+        #     if args.stochastic_outer and args.subset_outer:
+        #         if args.use_dev_outer:
+        #             valid_loader = construct_outer_subloader(args, dev_data_all)
+        #         else:
+        #             valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+        #     current_outer_iter_trained_more_steps_model_after_gold.append(model_copy_converged_ft)
+        #     test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+        #     print(f"train using only gold with data party #{i_party}: #iter=-1, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        #     logging.info(f"train using only gold with data party #{i_party}: #iter=-1, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        #     if args.wandb:
+        #         wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # # ###### FedAVG with the L model trained using gold data from each party ######
+        # fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold, args.gold_party_sample_weight)
+        # test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
+        # print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        # logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        # if args.wandb:
+        #     wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # # ###### FedAVG with the L model trained using gold data from each party ######
+
+        # ################# train using all the gold data #################
+        mix_train_data = merge_all_dataset(args, [gold_iter[i_party].dataset for i_party in range(args.gold_party_num)], max_sample_count_for_total=-1)
+        gold_theta_v0 = torch.full([len(mix_train_data)], 0.5, dtype=torch.float, device=device)
+        print(f"training STM with synthetic data mixing with total gold data from")
+        diverged = True # diverged==True means loss==nan, which means the training failed
+        while diverged:
+            model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v0.detach(), 1, args.inner_obj, test_loader)
+            print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+            if _outer_iter % args.check_ft_every==0:
+                model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v0.detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+        if _outer_iter % args.check_ft_every == 0:
             test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-            print(f"train using only gold with data party #{i_party}: #iter=-1, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-            logging.info(f"train using only gold with data party #{i_party}: #iter=-1, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+            # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+            print(f"train using only total gold: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+            logging.info(f"train using only total gold: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
             if args.wandb:
                 wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-        # ###### FedAVG with the L model trained using gold data from each party ######
-        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold, args.gold_party_sample_weight)
-        test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
-        print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-        logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-        if args.wandb:
-            wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-        # ###### FedAVG with the L model trained using gold data from each party ######
+        # ################# train using all the gold data #################
 
     # for outer_iter in range(args.max_outer_iter):
     for outer_iter in range(1):
@@ -2386,6 +2405,25 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
                     if args.wandb:
                         wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
 
+                # ################# train using all the syn+gold data #################
+                mix_train_data = merge_all_dataset(args, [total_small_train_data]+[gold_iter[i_party].dataset for i_party in range(args.gold_party_num)], max_sample_count_for_total=-1)
+                gold_theta_v0 = torch.full([len(mix_train_data)], 0.5, dtype=torch.float, device=device)
+                print(f"training STM with synthetic data mixing with total gold data from")
+                diverged = True # diverged==True means loss==nan, which means the training failed
+                while diverged:
+                    model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v0.detach(), 1, args.inner_obj, test_loader)
+                    print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+                    if _outer_iter % args.check_ft_every==0:
+                        model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v0.detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+                if _outer_iter % args.check_ft_every == 0:
+                    test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+                    # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+                    print(f"train after mixing with total gold and FedAVG_v0: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                    logging.info(f"train after mixing with total gold and FedAVG_v0: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+                    if args.wandb:
+                        wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+                # ################# train using all the syn+gold data #################
+
             if 'Adjust' in args.fuse_dataset_weight:
                 theta_total_mapped, _depricated_model_total_acc = weight_decay(args, [current_outer_iter_trained_model[-1]], [total_small_train_data], theta_total_mapped, beta=args.BETA, _type=args.weight_adjust_criterial, num_models=1)
                 theta_total[0] = copy.deepcopy(theta_total_mapped[0])
@@ -2397,108 +2435,108 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
 
 
 
-        # ###### train with gold_training data ######
-        # ###### [m_{train_using_all_syn}^{gold_data_list[0]}, m_{train_using_all_syn}^{gold_data_list[1]}, ..., m_{train_using_all_syn}^{gold_data_list[L]}]
-        current_outer_iter_trained_model_iter0_after_gold = [] 
-        current_outer_iter_trained_more_steps_model_iter0_after_gold = []
-        current_outer_iter_trained_model_after_gold = []
-        current_outer_iter_trained_more_steps_model_after_gold = []
-        gold_theta = [torch.full([len(gold_iter[_i_party].dataset)], 0.5, dtype=torch.float, device=device) for _i_party in range(args.gold_party_num)] #, requires_grad=True
-        for i_party in range(args.gold_party_num):
-            print(f"training STM with gold data from data party #{i_party}")
-            diverged = True # diverged==True means loss==nan, which means the training failed
-            while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
-                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
-            # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
-            # print(f"[debug] {args.use_dev_outer}")
-            if args.stochastic_outer and args.subset_outer:
-                if args.use_dev_outer:
-                    valid_loader = construct_outer_subloader(args, dev_data_all)
-                else:
-                    valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+        # # ###### train with gold_training data ######
+        # # ###### [m_{train_using_all_syn}^{gold_data_list[0]}, m_{train_using_all_syn}^{gold_data_list[1]}, ..., m_{train_using_all_syn}^{gold_data_list[L]}]
+        # current_outer_iter_trained_model_iter0_after_gold = [] 
+        # current_outer_iter_trained_more_steps_model_iter0_after_gold = []
+        # current_outer_iter_trained_model_after_gold = []
+        # current_outer_iter_trained_more_steps_model_after_gold = []
+        # gold_theta = [torch.full([len(gold_iter[_i_party].dataset)], 0.5, dtype=torch.float, device=device) for _i_party in range(args.gold_party_num)] #, requires_grad=True
+        # for i_party in range(args.gold_party_num):
+        #     print(f"training STM with gold data from data party #{i_party}")
+        #     diverged = True # diverged==True means loss==nan, which means the training failed
+        #     while diverged:
+        #         model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), 1, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
+        #         print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+        #         if _outer_iter % args.check_ft_every==0:
+        #             model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, current_outer_iter_trained_more_steps_model[-1], gold_iter[i_party].dataset, None, gold_theta[i_party].detach(), args.epoch_gold_fine_tune, args.inner_obj, test_loader, optimizer_state=optimizer_weight_ckp_all_syn[0])
+        #     # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+        #     # print(f"[debug] {args.use_dev_outer}")
+        #     if args.stochastic_outer and args.subset_outer:
+        #         if args.use_dev_outer:
+        #             valid_loader = construct_outer_subloader(args, dev_data_all)
+        #         else:
+        #             valid_loader = construct_outer_subloader(args, train_data) # currently using this one
             
-            current_outer_iter_trained_model_after_gold.append(model_copy_converged)
-            current_outer_iter_trained_more_steps_model_after_gold.append(model_copy_converged_ft)
-            if _outer_iter == 0:
-                current_outer_iter_trained_model_iter0_after_gold.append(model_copy_converged)
-                current_outer_iter_trained_more_steps_model_iter0_after_gold.append(model_copy_converged_ft)
+        #     current_outer_iter_trained_model_after_gold.append(model_copy_converged)
+        #     current_outer_iter_trained_more_steps_model_after_gold.append(model_copy_converged_ft)
+        #     if _outer_iter == 0:
+        #         current_outer_iter_trained_model_iter0_after_gold.append(model_copy_converged)
+        #         current_outer_iter_trained_more_steps_model_iter0_after_gold.append(model_copy_converged_ft)
         
-            if _outer_iter % args.check_ft_every == 0:
-                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-                # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
-                print(f"train after gold with data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-                logging.info(f"train after gold with data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-                if args.wandb:
-                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-        # ---------------------------
-        gold_theta_v2 = [None for _i_party in range(args.gold_party_num)] #, requires_grad=True
-        current_outer_iter_trained_model_iter0_after_gold_v2 = [] 
-        current_outer_iter_trained_more_steps_model_iter0_after_gold_v2 = []
-        current_outer_iter_trained_model_after_gold_v2 = []
-        current_outer_iter_trained_more_steps_model_after_gold_v2 = []
-        for i_party in range(args.gold_party_num):
-            mix_train_data = merge_all_dataset(args, [total_small_train_data]+[gold_iter[i_party].dataset], max_sample_count_for_total=-1)
-            gold_theta_v2[i_party] = torch.full([len(mix_train_data)], 0.5, dtype=torch.float, device=device)
-            print(f"training STM with synthetic data mixing with gold data from data party #{i_party}")
-            diverged = True # diverged==True means loss==nan, which means the training failed
-            while diverged:
-                model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), 1, args.inner_obj, test_loader)
-                print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-                if _outer_iter % args.check_ft_every==0:
-                    model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
-            # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
-            # print(f"[debug] {args.use_dev_outer}")
-            if args.stochastic_outer and args.subset_outer:
-                if args.use_dev_outer:
-                    valid_loader = construct_outer_subloader(args, dev_data_all)
-                else:
-                    valid_loader = construct_outer_subloader(args, train_data) # currently using this one
+        #     if _outer_iter % args.check_ft_every == 0:
+        #         test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+        #         # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+        #         print(f"train after gold with data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        #         logging.info(f"train after gold with data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        #         if args.wandb:
+        #             wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # # ---------------------------
+        # gold_theta_v2 = [None for _i_party in range(args.gold_party_num)] #, requires_grad=True
+        # current_outer_iter_trained_model_iter0_after_gold_v2 = [] 
+        # current_outer_iter_trained_more_steps_model_iter0_after_gold_v2 = []
+        # current_outer_iter_trained_model_after_gold_v2 = []
+        # current_outer_iter_trained_more_steps_model_after_gold_v2 = []
+        # for i_party in range(args.gold_party_num):
+        #     mix_train_data = merge_all_dataset(args, [total_small_train_data]+[gold_iter[i_party].dataset], max_sample_count_for_total=-1)
+        #     gold_theta_v2[i_party] = torch.full([len(mix_train_data)], 0.5, dtype=torch.float, device=device)
+        #     print(f"training STM with synthetic data mixing with gold data from data party #{i_party}")
+        #     diverged = True # diverged==True means loss==nan, which means the training failed
+        #     while diverged:
+        #         model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), 1, args.inner_obj, test_loader)
+        #         print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
+        #         if _outer_iter % args.check_ft_every==0:
+        #             model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v2[i_party].detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+        #     # print(f"[debug] {args.stochastic_outer and args.subset_outer} {args.stochastic_outer}, {args.subset_outer}")
+        #     # print(f"[debug] {args.use_dev_outer}")
+        #     if args.stochastic_outer and args.subset_outer:
+        #         if args.use_dev_outer:
+        #             valid_loader = construct_outer_subloader(args, dev_data_all)
+        #         else:
+        #             valid_loader = construct_outer_subloader(args, train_data) # currently using this one
             
-            current_outer_iter_trained_model_after_gold_v2.append(model_copy_converged)
-            current_outer_iter_trained_more_steps_model_after_gold_v2.append(model_copy_converged_ft)
-            if _outer_iter == 0:
-                current_outer_iter_trained_model_iter0_after_gold_v2.append(model_copy_converged)
-                current_outer_iter_trained_more_steps_model_iter0_after_gold_v2.append(model_copy_converged_ft)
+        #     current_outer_iter_trained_model_after_gold_v2.append(model_copy_converged)
+        #     current_outer_iter_trained_more_steps_model_after_gold_v2.append(model_copy_converged_ft)
+        #     if _outer_iter == 0:
+        #         current_outer_iter_trained_model_iter0_after_gold_v2.append(model_copy_converged)
+        #         current_outer_iter_trained_more_steps_model_iter0_after_gold_v2.append(model_copy_converged_ft)
         
-            if _outer_iter % args.check_ft_every == 0:
-                test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-                # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
-                print(f"train after mixing with gold from data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-                logging.info(f"train after mixing with gold from data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-                if args.wandb:
-                    wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-        # ---------------------------
-        # TODO: how to deal with the mislabeled part???
-        # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, current_outer_iter_trained_more_steps_model[-1], current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
-        # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
-        # print(f"saved changes")
-        # ---------------------------
-        # ###### train with gold_training data ######
+        #     if _outer_iter % args.check_ft_every == 0:
+        #         test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+        #         # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+        #         print(f"train after mixing with gold from data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        #         logging.info(f"train after mixing with gold from data party #{i_party}: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        #         if args.wandb:
+        #             wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # # ---------------------------
+        # # TODO: how to deal with the mislabeled part???
+        # # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, current_outer_iter_trained_more_steps_model[-1], current_outer_iter_trained_more_steps_model_after_gold, small_train_data)
+        # # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
+        # # print(f"saved changes")
+        # # ---------------------------
+        # # ###### train with gold_training data ######
 
-        # ###### FedAVG with the L model trained using gold data from each party ######
-        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold, args.gold_party_sample_weight)
-        test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
-        print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-        logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-        if args.wandb:
-            wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-        # ###### FedAVG with the L model trained using gold data from each party ######
-        # ###### FedAVG with the L model trained using synthetic mixed with gold data from each party ######
-        fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold_v2, args.gold_party_sample_weight)
-        test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
-        print(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-        logging.info(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-        if args.wandb:
-            wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
-        # ###### FedAVG with the L model trained using synthetic mixed with gold data from each party ######
+        # # ###### FedAVG with the L model trained using gold data from each party ######
+        # fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold, args.gold_party_sample_weight)
+        # test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
+        # print(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        # logging.info(f"train after gold and fedAVG: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        # if args.wandb:
+        #     wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # # ###### FedAVG with the L model trained using gold data from each party ######
+        # # ###### FedAVG with the L model trained using synthetic mixed with gold data from each party ######
+        # fed_model = FedAVG(args, current_outer_iter_trained_more_steps_model_after_gold_v2, args.gold_party_sample_weight)
+        # test_acc1_ft, test_loss_ft = eval(args, fed_model, test_loader, name="test")
+        # print(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        # logging.info(f"train after mixing with gold and fedAVG_v2: beta({args.BETA}), test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        # if args.wandb:
+        #     wandb.log({"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+        # # ###### FedAVG with the L model trained using synthetic mixed with gold data from each party ######
 
-        # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], small_train_data)
-        # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
-        loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, model_average_loss = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], [total_small_train_data])
-        torch.save(([dataset.text for dataset in [total_small_train_data]], [dataset.label for dataset in [total_small_train_data]], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/iter{args.i_step}_sample_pred_change.pth")
+        # # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], small_train_data)
+        # # torch.save(([dataset.text for dataset in small_train_data], [dataset.label for dataset in small_train_data], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/sample_pred_change.pth")
+        # loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change, model_average_loss = model_pred_change_after_gold(args, [current_outer_iter_trained_more_steps_model[-1]], [fed_model], [total_small_train_data])
+        # torch.save(([dataset.text for dataset in [total_small_train_data]], [dataset.label for dataset in [total_small_train_data]], loss_per_sample_change, error_per_sample_change, correctness_per_sample_change, prediction_per_sample_change, norm_logits_per_sample_change), f"{args.result_file_path}/iter{args.i_step}_sample_pred_change.pth")
 
         # use the first model for further calculation
         current_outer_iter_trained_model = current_outer_iter_trained_model_iter0
@@ -2925,7 +2963,7 @@ if __name__ == "__main__":
     parser.add_argument('--unbalance_gold', default=0, type=int, help='0=False: total golden data iid of the total dataset, i.e. balanced; 1=True: ood golden data compared to total real data, i.e. unbalance')
     parser.add_argument('--gold_party_num', default=-1, type=int, help='number of golden data party')
     parser.add_argument('--gold_split_dirichlet', default=0.1, type=float, help='non-iid data partition for multiple gold data party, [0.0, 0.01, 0.05, 0.1, 0.5],  0.0==>partition using class')
-    parser.add_argument('--gold_sample_limit_per_client', default=-1, type=int, help='non-iid data partition for multiple gold data party, each party controls no more than this number of samples')
+    parser.add_argument('--gold_sample_limit_per_client', default=8, type=int, help='non-iid data partition for multiple gold data party, each party controls no more than this number of samples')
     parser.add_argument('--syn_data_path', default='data_new/', type=str)
     parser.add_argument('--llms', default=['gpt2-xl','llama-2-7b-chat-hf'], nargs='+', type=str)
     # parser.add_argument('--llm_1', default=None, type=str)
@@ -3103,6 +3141,9 @@ if __name__ == "__main__":
             args.function_sensitivity = 2
         if 'Contrast' in args.gen_sample_select:
             args.function_sensitivity = args.function_sensitivity * 2
+    if args.gold_sample_limit_per_client <= 0: # default set to 8
+        args.gold_sample_limit_per_client = 8
+    args.function_sensitivity * args.gold_sample_limit_per_client # assume each data party controls no more than 8 samples
     args.voting_dp_delta = 1E-5
     if args.voting_dp_epsilon >= (1E5)-(1E-5):
         # treate it as infinity
