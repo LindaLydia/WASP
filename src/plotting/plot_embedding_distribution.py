@@ -306,8 +306,8 @@ def load_iters_bert(args, batch_size=32, backward_batch_size=1000, device="cpu",
         if SYN_DATA_PATH == 'data_new/':
             train_data_path = f'{SYN_DATA_PATH}{args.task_name}/{args.llms[i]}/{file_choose(args.num_use_samples_inner[i])}/train.jsonl'
         else:
-            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
-            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
+            # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp1.0/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/6000_1200_4_unbalance_temp3/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/1000_200_200/train.jsonl' # accumulate-adjust-2-2
             # train_data_path = f'{SYN_DATA_PATH}{args.llms[i]}/100_20_20/train.jsonl' # accumulate-adjust-2-2
@@ -1020,42 +1020,85 @@ def calculate_fid_metrics(args, embeddings_2d, embeddings, labels, embeddings_la
                     embeddings_label[i][label] = copy.deepcopy(_embeddings_of_this_label)
                 # print(embeddings_label[i])
 
-            total_fid[int(i_step-1)], within_class_fid[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
+            # ############################### calculate FID per plm ###############################
+            # total_fid[int(i_step-1)], within_class_fid[int(i_step-1)] = [float('inf')]*args.len_LLM, [0.0]*args.len_LLM
+            # # real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
+            # # real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
+            # real_embeddings = embeddings[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1], :]
+            # real_labels = labels[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1]]
+            # for i in range(args.len_LLM):
+            #     # ############# total_fid calculation #############
+            #     # temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
+            #     # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
+            #     temp_embeddings = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :]
+            #     temp_labels = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]
+            #     # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
+            #     # print(type(temp_embeddings), type(real_embeddings))
+            #     fid_value = calculate_fid(temp_embeddings, real_embeddings)
+            #     total_fid[int(i_step-1)][i] = fid_value.sum()/fid_value.size
+            #     # print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
+            #     # ############# total_fid calculation #############
+                
+            #     # ############# within_class_fid calculation #############
+            #     unique_label_counter = 0
+            #     for unique_label in embeddings_label[-1]:
+            #         print(f"{unique_label=}, {len(embeddings_label[i][unique_label])=}, {len(embeddings_label[-1][unique_label])=}")
+            #         if len(embeddings_label[-1][unique_label]) > 0:
+            #             if len(embeddings_label[i][unique_label]) == 0:
+            #                 within_class_fid[int(i_step-1)][i] = float('inf')
+            #                 break
+            #             else:
+            #                 unique_label_counter += 1
+            #                 fid_value = calculate_fid(embeddings_label[i][unique_label], embeddings_label[-1][unique_label])
+            #                 within_class_fid[int(i_step-1)][i] += fid_value.sum()/fid_value.size
+            #                 print(f"{fid_value=}, {within_class_fid[int(i_step-1)][i]=}")
+            #         else:
+            #             within_class_fid[int(i_step-1)][i] = float('inf')
+            #         if within_class_fid[int(i_step-1)][i] != float('inf'):
+            #             within_class_fid[int(i_step-1)][i] = within_class_fid[int(i_step-1)][i] / unique_label_counter
+            #     # ############# within_class_kl calculation #############
+            # ############################### calculate FID per plm ###############################
+            # ############################### calculate FID with total data from PLMs ###############################
+            total_fid[int(i_step-1)], within_class_fid[int(i_step-1)] = float('inf'), 0.0
             # real_embeddings = embeddings[args.accumulate_sampels[-2]:args.accumulate_sampels[-1], :]
             # real_labels = labels[args.accumulate_sampels[-2]:args.accumulate_sampels[-1]]
             real_embeddings = embeddings[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1], :]
             real_labels = labels[args.accumulate_sampels[-1][-2]:args.accumulate_sampels[-1][-1]]
+            temp_embeddings = []
+            temp_labels = []
             for i in range(args.len_LLM):
                 # ############# total_fid calculation #############
                 # temp_embeddings = embeddings[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1))), :]
                 # temp_labels = labels[args.accumulate_sampels[i]:args.accumulate_sampels[i]+int(args.num_use_samples_inner[i]*(i_step/(args.steps+1)))]
-                temp_embeddings = embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :]
-                temp_labels = labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]]
+                temp_embeddings.append(embeddings[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i], :])
+                temp_labels.append(labels[args.accumulate_sampels[-1][i]:args.accumulate_sampels[-1][i]+args.step_sample_count[i_step-1][i]])
                 # print(f"{real_embeddings.shape=}, {temp_embeddings.shape=}")
                 # print(type(temp_embeddings), type(real_embeddings))
-                fid_value = calculate_fid(temp_embeddings, real_embeddings)
-                total_fid[int(i_step-1)][i] = fid_value.sum()/fid_value.size
-                # print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
-                # ############# total_fid calculation #############
-                
-                # ############# within_class_fid calculation #############
-                unique_label_counter = 0
-                for unique_label in embeddings_label[-1]:
-                    print(f"{unique_label=}, {len(embeddings_label[i][unique_label])=}, {len(embeddings_label[-1][unique_label])=}")
-                    if len(embeddings_label[-1][unique_label]) > 0:
-                        if len(embeddings_label[i][unique_label]) == 0:
-                            within_class_fid[int(i_step-1)][i] = float('inf')
-                            break
-                        else:
-                            unique_label_counter += 1
-                            fid_value = calculate_fid(embeddings_label[i][unique_label], embeddings_label[-1][unique_label])
-                            within_class_fid[int(i_step-1)][i] += fid_value.sum()/fid_value.size
-                            print(f"{fid_value=}, {within_class_fid[int(i_step-1)][i]=}")
+            temp_embeddings = np.concatenate(temp_embeddings, axis=0)
+            fid_value = calculate_fid(temp_embeddings, real_embeddings)
+            total_fid[int(i_step-1)] = fid_value.sum()/fid_value.size
+            # print(f"{fid_value=}, {total_fid[int(i_step-1)][i]=}")
+            # ############# total_fid calculation #############
+            
+            # ############# within_class_fid calculation #############
+            unique_label_counter = 0
+            for unique_label in embeddings_label[-1]:
+                print(f"{unique_label=}, {len(embeddings_label[i][unique_label])=}, {len(embeddings_label[-1][unique_label])=}")
+                if len(embeddings_label[-1][unique_label]) > 0:
+                    if len(embeddings_label[i][unique_label]) == 0:
+                        within_class_fid[int(i_step-1)] = float('inf')
+                        break
                     else:
-                        within_class_fid[int(i_step-1)][i] = float('inf')
-                    if within_class_fid[int(i_step-1)][i] != float('inf'):
-                        within_class_fid[int(i_step-1)][i] = within_class_fid[int(i_step-1)][i] / unique_label_counter
-                # ############# within_class_kl calculation #############
+                        unique_label_counter += 1
+                        fid_value = calculate_fid(embeddings_label[i][unique_label], embeddings_label[-1][unique_label])
+                        within_class_fid[int(i_step-1)] += fid_value.sum()/fid_value.size
+                        print(f"{fid_value=}, {within_class_fid[int(i_step-1)]=}")
+                else:
+                    within_class_fid[int(i_step-1)] = float('inf')
+                if within_class_fid[int(i_step-1)] != float('inf'):
+                    within_class_fid[int(i_step-1)] = within_class_fid[int(i_step-1)] / unique_label_counter
+            # ############# within_class_kl calculation #############
+            # ############################### calculate FID with all data from PLMs ###############################
     else:
         print(f"[WARNING] Real samples not considered, no FID can be calculated")
 
@@ -1442,9 +1485,9 @@ if __name__ == "__main__":
 
     save_type = 'origianl' if 'data_new' in SYN_DATA_PATH else ('singleProgen' if 'single' in SYN_DATA_PATH else 'accumulate')
 
-    ############## calculate and save tsne ##############
-    calculate_and_save_tsne(args)
-    ############## calculate and save tsne ##############
+    # ############## calculate and save tsne ##############
+    # calculate_and_save_tsne(args)
+    # ############## calculate and save tsne ##############
 
     # assert 1 == 0
 
@@ -1511,7 +1554,7 @@ if __name__ == "__main__":
     
     # plot_labeled_distribution(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, counts)
     
-    calculate_embedding_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, count=8)
+    # calculate_embedding_distance(args, embeddings_2d, embeddings, labels, embeddings_label, label_unique_values, count=8)
 
     # plot_dynamics(args, labels, embeddings_label, label_unique_values)
 

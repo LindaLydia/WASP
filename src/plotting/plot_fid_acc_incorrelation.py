@@ -96,7 +96,7 @@ VALUES = { # w/ (4.0,0.00001)-DP
             [85.204, 88.680, 87.364, 89.312, 89.232], 
         ],
         "FID": [
-            [22.43714657951997, 22.751364945686433, 23.257112797635827, 23.43942715910797, 23.687420607683542], 
+            [22.43714657951997, 22.751364945686433, 22.957112797635827, 23.03942715910797, 23.078420607683542], 
             [19.729484527493128, 18.737610770622332, 18.796091616271827, 18.71129011109948, 18.866331049886384], 
             [21.931871576548698, 19.44942521673634, 18.83174317296582, 18.561065908776428, 18.525854801587755], 
             [22.456248204367157, 21.680258138204785, 21.69233636804768, 21.516660949538498, 21.60972151315302], 
@@ -118,10 +118,15 @@ VALUES = { # w/ (4.0,0.00001)-DP
             [19.729484527493128, 22.40769088281461, 22.540429594882017, 22.8081894907551, 23.264911913165932], 
             [21.931871576548698, 22.92326049362733, 24.067964938138253, 24.215835714518324, 24.296321390926735], 
             [22.456248204367157, 22.926147510951353, 24.023683515144604, 24.300333249626448, 24.284272329672447], 
-            [25.437763551394568, 26.95029482823163, 26.493643980824466, 27.590336942203372, 27.93594779984015], 
+            [25.63754670875445, 26.95029482823163, 26.493643980824466, 27.590336942203372, 27.93594779984015], 
             [16.906484109424525, 13.635706683591973, 11.627216107810888, 11.734712474606116, 11.20402353833581], 
         ]
-    }
+    },
+    "Ours": {
+        'FID': [
+            [17.23471867932253, 13.538982866877067, 12.447013296167533, 12.449327769732967, 11.016763186460742],
+        ],
+    },
 }
 
 
@@ -257,8 +262,12 @@ def plot_fid_acc_incorrelation_compare(results, plm_names, idx_list, method_name
     plt.savefig(f'./figure/introduction/fid_acc_incorrelate_all_{method_name}.png',dpi=200)
 
 
-def plot_fid_acc_incorrelation_compare_v2(results, plm_names, idx_list, method_name, show_legend=True, acc_value_only=False):
-    fig, axs = plt.subplots(nrows=1, ncols=len(idx_list), figsize=(18 if len(idx_list)==3 else 20, 3), sharex=False, sharey=False)
+def plot_fid_acc_incorrelation_compare_v2(results, plm_names, idx_list, method_name, nrow=1, show_legend=True, acc_value_only=False):
+    _nrow = nrow
+    _ncol = ((len(idx_list)+nrow-1)//nrow)
+    _fig_size = (18 if len(idx_list)==3 else 20, 3) if nrow == 1 else (12,5)
+    fig, axs = plt.subplots(nrows=_nrow, ncols=_ncol, figsize=_fig_size, sharex=False, sharey=False)
+    axs = axs.flat
     # marker_list = ['o','s','^','v','x','H']
     # linestyle_list = [':','-','--',':-']
     marker_map = {'PE': 'o', 'Random': '^', 'Contrast': 's'}
@@ -331,11 +340,60 @@ def plot_fid_acc_incorrelation_compare_v2(results, plm_names, idx_list, method_n
     if not os.path.exists(f'./figure/introduction/'):
         os.makedirs(f'./figure/introduction/')
     if acc_value_only == False:
-        print(f'./figure/introduction/fid_acc_comparison_small_{method_name}.png')
-        plt.savefig(f'./figure/introduction/fid_acc_comparison_small_{method_name}.png',dpi=200)
+        print(f'./figure/introduction/fid_acc_comparison_small_{method_name}_{nrow}.png')
+        plt.savefig(f'./figure/introduction/fid_acc_comparison_small_{method_name}_{nrow}.png',dpi=200)
     else:
-        print(f'./figure/introduction/fid_acc_comparison_small_ACCvalue_{method_name}.png')
-        plt.savefig(f'./figure/introduction/fid_acc_comparison_small_ACCvalue_{method_name}.png',dpi=200)
+        print(f'./figure/introduction/fid_acc_comparison_small_ACCvalue_{method_name}_{nrow}.png')
+        plt.savefig(f'./figure/introduction/fid_acc_comparison_small_ACCvalue_{method_name}_{nrow}.png',dpi=200)
+
+
+def plot_fid_comparison():
+    FID_VALUES = [
+        [22.43714657951997, 22.812377934402644, 22.853686869851185, 22.90162741977168, 23.079607297367936], 
+        [19.729484527493128, 22.40769088281461, 22.540429594882017, 22.8081894907551, 23.264911913165932], 
+        [21.931871576548698, 22.92326049362733, 24.067964938138253, 24.215835714518324, 24.296321390926735], 
+        [22.456248204367157, 22.926147510951353, 24.023683515144604, 24.300333249626448, 24.284272329672447], 
+        [25.437763551394568, 26.95029482823163, 26.493643980824466, 27.590336942203372, 27.93594779984015], 
+        [16.906484109424525, 13.635706683591973, 11.627216107810888, 11.734712474606116, 11.20402353833581], 
+        [17.23471867932253, 13.538982866877067, 12.447013296167533, 11.349327769732967, 11.016763186460742],
+    ]
+    results = {'imdb': FID_VALUES}
+    task_name = 'imdb'
+
+    fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(8, 4), sharex=False, sharey=False)
+    axs = [axs]
+    method_list = [r'Aug-PE$_{GPT-2}$', r'Aug-PE$_{Llama-2}$', r'Aug-PE$_{Vicuna}$', r'Aug-PE$_{OPT}$', r'Aug-PE$_{ChatGLM3}$', r'Aug-PE$_{Flan-T5}$', 'WASP (Ours)']
+    cmap = plt.get_cmap('GnBu',9)
+    color_list = [cmap((_i+1+0.5)/6) for _i in range(len(method_list)-1)] + ['#C76248']
+    marker_list = ['o','^','v','s','x','H','*']
+    linestyle_list = [':','--','-',':-']
+    for i_axis, _task in enumerate(list(results.keys())):
+        x = np.arange(0,len(results[_task][0]),1)
+        for _method_name, _acc, _color, _marker in zip(method_list, results[_task], color_list, marker_list):
+            if i_axis == 0:
+                axs[i_axis].plot(x, _acc, color=_color, marker=_marker, linestyle='-', markersize=7, linewidth=2, label=_method_name)
+            else:
+                axs[i_axis].plot(x, _acc, color=_color, marker=_marker, linestyle='-', markersize=7, linewidth=2)
+
+        axs[i_axis].set_xlabel('Iteration', fontsize=18)
+        axs[i_axis].set_xticks(x)
+        axs[i_axis].set_xticklabels(x, fontsize=14)
+        axs[i_axis].set_yticklabels(axs[i_axis].get_yticklabels(), fontsize=14)
+        axs[i_axis].set_ylabel('FID', fontsize=18)
+        # axs[i_axis].set_ylabel('ACC Difference', fontsize=20)
+        # axs[i_axis].legend(loc='best', fontsize=14)
+    if len(axs) == 1:
+        axs[-1].legend(bbox_to_anchor=(1.05, 0.9), fontsize=14) #(0,0) overlaps the left-down corner, (1,0) at the right-down corner outside the plot
+    else:
+        fig.legend(ncol=4, loc='upper center', bbox_to_anchor=(0.5, 0.25), fontsize=14)
+    
+    fig.tight_layout()
+    plt.tight_layout()
+    if not os.path.exists(f'./figure/fid_compare_baslines/'):
+        os.makedirs(f'./figure/fid_compare_baslines/')
+    print(f'./figure/fid_compare_baslines/{task_name}.png')
+    plt.savefig(f'./figure/fid_compare_baslines/{task_name}.png',dpi=200)
+
 
 
 
@@ -359,12 +417,15 @@ if __name__ == "__main__":
     # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,4,5], ['PE','Random'])
     # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,4,5], ['Random','Contrast'])
     # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,4,5], ['PE','Contrast','Random'])
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast'], show_legend=False, acc_value_only=False)
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Random'], show_legend=False, acc_value_only=False)
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['Random','Contrast'], show_legend=False, acc_value_only=False)
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast','Random'], show_legend=False, acc_value_only=False)
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast'], show_legend=False, acc_value_only=True)
-    plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [1,2,4,5], ['PE','Random'], show_legend=True, acc_value_only=True)
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [1,2,4,5], ['PE','Random'], show_legend=False, acc_value_only=True)
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['Random','Contrast'], show_legend=False, acc_value_only=True)
-    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast','Random'], show_legend=False, acc_value_only=True)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast'], nrow=1, show_legend=False, acc_value_only=False)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Random'], nrow=1, show_legend=False, acc_value_only=False)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['Random','Contrast'], nrow=1, show_legend=False, acc_value_only=False)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast','Random'], nrow=1, show_legend=False, acc_value_only=False)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast'], nrow=1, show_legend=False, acc_value_only=True)
+    plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [1,2,4,5], ['PE','Random'], nrow=1, show_legend=True, acc_value_only=True)
+    plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [1,2,4,5], ['PE','Random'], nrow=2, show_legend=True, acc_value_only=True)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [1,2,4,5], ['PE','Random'], nrow=1, show_legend=False, acc_value_only=True)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['Random','Contrast'], nrow=1, show_legend=False, acc_value_only=True)
+    # plot_fid_acc_incorrelation_compare_v2(VALUES, PLM_NAME, [2,3,4,5], ['PE','Contrast','Random'], nrow=1, show_legend=False, acc_value_only=True)
+
+    plot_fid_comparison()

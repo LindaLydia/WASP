@@ -43,6 +43,8 @@ def plot_vary_J(results, ncol=2, nrow=2, fig_size=(8,4)):
     cmap = pylab.cm.get_cmap('seismic', 6) #'PiYG', 'twilight
     cmap = pylab.cm.get_cmap('YlGnBu', 6) #'PiYG', 'twilight
     cmap = pylab.cm.get_cmap('BrBG', 6) #'PiYG', 'twilight
+    # cmap = pylab.cm.get_cmap('coolwarm', 6) #'coolwarm', 'twilight
+    # cmap = pylab.cm.get_cmap('RdBu', 6) #'coolwarm', 'twilight
     # print(f"{cmap=}")
     # print(f"{cmap.colors=}")
 
