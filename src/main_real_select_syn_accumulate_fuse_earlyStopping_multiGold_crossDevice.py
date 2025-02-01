@@ -2226,15 +2226,13 @@ def solve_with_local_cross_validation(args, model, train_data, small_train_data,
         while diverged:
             model_copy_converged, loss, train_acc, model_weights_cache, opt_checkpoints_cache, diverged = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v0.detach(), 1, args.inner_obj, test_loader)
             print(f"diverged={diverged}, loss={loss}, train_acc={train_acc}")
-            if _outer_iter % args.check_ft_every==0:
-                model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v0.detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
-        if _outer_iter % args.check_ft_every == 0:
-            test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
-            # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
-            print(f"train using only total gold: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-            logging.info(f"train using only total gold: #iter={_outer_iter}, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
-            if args.wandb:
-                wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
+            model_copy_converged_ft, loss_ft, train_acc_ft, _, _, _ = train_to_converge(args, model[0], mix_train_data, total_valid_data, gold_theta_v0.detach(), args.epoch_converge_fully_train, args.inner_obj, test_loader)
+        test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, test_loader, name="test")
+        # test_acc1_ft, test_loss_ft = eval(args, model_copy_converged_ft, train_loader[i], name="test")
+        print(f"train using only total gold: beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        logging.info(f"train using only total gold:, beta({args.BETA}), train_loss_ft={loss_ft}, train_acc_ft={train_acc_ft}, test_acc_ft={test_acc1_ft}, test_loss_ft={test_loss_ft}")
+        if args.wandb:
+            wandb.log({"train_loss_ft": loss_ft,"train_acc_ft":train_acc_ft,"test_acc_ft": test_acc1_ft, "test_loss_ft":test_loss_ft})
         # ################# train using all the gold data #################
 
     # for outer_iter in range(args.max_outer_iter):
