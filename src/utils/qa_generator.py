@@ -122,7 +122,7 @@ class QADataGenerator:
     def generate_question(self, input_texts: Dataset, num_entries_per_input: int = 2,
                           batch_size: int = 16, log_every: int = 10000) -> Dataset:
 
-        num_instructions = batch_size // num_entries_per_input
+        num_instructions = (batch_size // num_entries_per_input) // len(self.instruction)
 
         sampler = BatchSampler(SequentialSampler(input_texts), batch_size=num_instructions, drop_last=False)
         dataset = []
@@ -177,9 +177,9 @@ class QADataGenerator:
 
     def _generate_dataset_entries(self, batch: List[Dict], num_samples: int) -> List[Dict]:
 
-        instructions = [self.instruction.replace(PLACEHOLDER_CONTEXT, example['context'])
-                            .replace(PLACEHOLDER_ANSWER, example['answers']['text'][0])
-                        for example in batch]
+        instructions = [self.instruction[i].replace(PLACEHOLDER_CONTEXT, example['context'])
+                            .replace(PLACEHOLDER_ANSWER, example['answers']['text'][0]) 
+                        for i in range(len(self.instruction)) for example in batch]
 
         model_outputs = self.model.generate_self_debiasing(
             input_texts=instructions,

@@ -131,6 +131,7 @@ def construct_outer_subloader(args, train_data, indices = None, idx_to_order=Non
 def file_choose(num_samples):
     bins = [0,10,1000,10000,20000,50000,100000,200000,500000,1000000]
     bins = [0,10000,20000,50000]
+    bins = [0,6000,10000,20000,50000] # for dpft_gen samples
     file_samples = -1
     for j in range(1,len(bins)):
         if bins[j-1] < num_samples <= bins[j]:
@@ -2998,6 +2999,7 @@ if __name__ == "__main__":
     parser.add_argument("--voting_range", type=str, default='all', help="find nearest synthetic sample within all the syn samples or within the same class, ['all', 'class']") 
     parser.add_argument("--real_voting_votes", type=int, default=8, help="the number of synthetic samples on real sample votes for")
     parser.add_argument("--voting_dp_epsilon", type=float, default=1.0, help="[1,2,4,inf(>=10000.0)], (epsilon, delta)-DP protection of the histogram for each party, noise level of gaussian is calculated accordingly")
+    parser.add_argument("--voting_dp_delta", type=float, default=0.00001, help="[1E-5, 1E-5/(args.steps+1)], (epsilon, delta)-DP protection of the histogram for each party, noise level of gaussian is calculated accordingly")
     # parser.add_argument("--voting_dp_sigma", type=float, default=3.93771533777, help="the level of noise for DP protection of the histogram for each party")
     parser.add_argument("--unbalance_generation", type=bool, default=False, help="whether to assign different number of synthetic samples to different PLMs or not") 
     parser.add_argument("--unbalance_generation_temperature", type=float, default=1.0, help="temperature for soften the number of synthetic samples for generation for each PLM")
@@ -3103,14 +3105,14 @@ if __name__ == "__main__":
             args.function_sensitivity = 2
         if 'Contrast' in args.gen_sample_select:
             args.function_sensitivity = args.function_sensitivity * 2
-    args.voting_dp_delta = 1E-5
+    # args.voting_dp_delta = 1E-5
     if args.voting_dp_epsilon >= (1E5)-(1E-5):
         # treate it as infinity
         args.voting_dp_sigma = 0.0
     else:
         # calculate N(0,sigma) using Theorem 1 from Balle&Wang(ICLM2018, Improving the Gaussian Mechanism for Differential Privacy: Analytical Calibration and Optimal Denoising)
         args.voting_dp_sigma = (args.function_sensitivity) * np.sqrt(2*np.log(1.25/args.voting_dp_delta)) * np.sqrt(args.steps) / (args.voting_dp_epsilon * np.sqrt(args.gold_party_num))
-    print(f"({args.voting_dp_epsilon},{args.voting_dp_delta})-DP of {args.gold_party_num} collaborative data party with Gaussian noise following N(0,{args.voting_dp_sigma})")
+    print(f"(total_epsilon={args.voting_dp_epsilon},iter_delta={args.voting_dp_delta})-DP of {args.gold_party_num} collaborative data party with Gaussian noise following N(0,{args.voting_dp_sigma})")
 
     if args.unbalance_generation == False:
         args.unbalance_generation_temperature = 0.0
@@ -3162,10 +3164,25 @@ if __name__ == "__main__":
         args.sample_each_llm = args.num_use_samples_inner
         args.sample_each_llm = torch.tensor(args.sample_each_llm).to(args.device)
 
+        args.gold_iter = None
+        args.gold_data = None
+        args.test_iter = None
+        args.i_step = 0
+
         print('num of use syn samples:{}'.format(args.num_use_samples_inner))
         if any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
             train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, gold_iter, test_iter, train_data, small_train_data, small_valid_data, dev_data_all, gold_data = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
             args.num_classes = 77 if 'worksheet' in args.task_name else len(torch.unique(test_iter.dataset.label))
+            if args.gold_iter == None:
+                args.gold_iter = gold_iter
+                args.gold_data = gold_data
+                args.test_iter = test_iter
+                args.working_gold_sample_dir = [f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/gold/party#{i_data_party}/' for i_data_party in range(args.gold_party_num)]
+                for i_data_party in range(args.gold_party_num):
+                    if not os.path.exists(args.working_gold_sample_dir[i_data_party]):
+                        os.makedirs(args.working_gold_sample_dir[i_data_party])
+                    for sample_file_name in ['train_noflip', 'train']:
+                        save_gold_sample_file(f'{args.working_gold_sample_dir[i_data_party]}{sample_file_name}.jsonl', args.gold_data[i_data_party])
         else: # lstm
             train_iter, small_train_iter, small_valid_iter, train_iter_backward, dev_iter, test_iter, TEXT, LABEL, train_data, small_train_data, small_valid_data, dev_data_all = load_iters(args, args.train_batch_size, args.backward_batch_size, device, args.gold_data_path, SYN_DATA_PATH, vectors, False, args.num_use_samples_inner, args.num_use_samples_outer,args.shuffle_train)
             args.num_classes = len(LABEL.vocab.stoi)
@@ -3256,6 +3273,7 @@ if __name__ == "__main__":
 
         for im in range(args.len_LLM):
             args.init_sample_path.append(f'data_accumulate_start/{args.task_name}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}/train.jsonl')
+            # args.init_sample_path.append(f'data_accumulate_start_dp/{args.task_name}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}/train.jsonl')
             args.working_sample_dir.append(f'{SYN_DATA_PATH}voting{args.voting_range.upper()}_prompt{"CLASS" if args.gen_by_class else "ALL"}_{args.real_voting_votes}_{args.voting_dp_sigma}_{args.gen_sample_select}_{args.voted_sample_select}/gold_{args.gold_data_num}_{args.gold_party_num}_{args.gold_split_dirichlet}_{"OOD" if args.unbalance_gold else "IID"}gold/{args.model_name_sample}/{args.small_model_name}/{args.sentence_transformer}/{args.fuse_dataset_sample_selection}_KD{args.kd_slm}_FuseDataset{args.fuse_dataset}/fewshotK{args.gen_few_shot_k}_{args.gen_few_shot_pool_size}_{args.gen_few_shot_ambiguous_ratio}/{args.seed}/{args.llms[im]}/{args.num_use_samples_inner[im]}_{args.num_use_samples_init[im]}_{args.steps}_{"un" if args.unbalance_generation else ""}balance_temp{args.unbalance_generation_temperature}/')
             if not os.path.exists(args.working_sample_dir[im]):
                 os.makedirs(args.working_sample_dir[im])

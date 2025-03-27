@@ -774,6 +774,8 @@ def get_accumualte_results_in_iter():
                                 fed_type = 'fedAVG_v2' if '_v2' in line else ( 'all-one-hot' if 'LLMs' in line else 'fedAVG')
                                 floating_point_pattern = r'(?<=\=)[+-]?\d*\.\d+'
                                 matches = re.findall(floating_point_pattern, line)
+                                if len(matches) < 2:
+                                    matches.append('nan')
                                 # pattern = r'#iter=-?\d+'
                                 # matches = re.findall(pattern, line)
                                 # iter_count = int(matches[0][6:])

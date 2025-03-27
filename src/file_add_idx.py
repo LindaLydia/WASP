@@ -14,21 +14,22 @@ import random
 # output_file_path = f'{SYN_DATA_PATH}{TASK_NAME}/{MODEL_NAME}/{mode}.jsonl'
 
 SYN_DATA_PATH = 'data_new/'
+SYN_DATA_PATH = 'data_new_dp/'
 # SYN_DATA_PATH = 'data_new_few_shot_ambiguous/'
 # SYN_DATA_PATH = 'data_new_few_shot_easytolearn/'
-# TASK_NAME = 'imdb'
+TASK_NAME = 'imdb'
 # TASK_NAME = 'yelp'
-TASK_NAME = 'qnli'
-TASK_NAME = 'mnli'
-TASK_NAME = 'agnews'
-TASK_NAME = 'markednews'
-TASK_NAME = 'banking77'
-TASK_NAME = 'squad'
+# TASK_NAME = 'qnli'
+# TASK_NAME = 'mnli'
+# TASK_NAME = 'agnews'
+# TASK_NAME = 'markednews'
+# TASK_NAME = 'banking77'
+# TASK_NAME = 'squad'
 TASK_NAME = 'yelpCategory'
-# TASK_NAME = 'yelpRating'
+TASK_NAME = 'yelpRating'
 TASK_NAME = 'openreviewCategory'
 # TASK_NAME = 'openreviewRating'
-TASK_NAME = 'banking'
+# TASK_NAME = 'banking'
 # MODEL_NAME = 'gpt2-xl'
 # MODEL_NAME = 'llama-2-7b-chat-hf'
 # MODEL_NAME = 'vicuna-7b-1.5v'
@@ -51,6 +52,11 @@ input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/squad/outp
 input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/yelpbusiness/output/yelpbusiness-x2-200k/'
 input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/openreview/output/openreview-x2-200k/'
 input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/banking/output/10k/'
+
+input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/imdb/output-dp-tuned/imdb-dp-tuned/'
+input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/yelpbusiness/output-dp-tuned/yelpbusiness-dp-tuned/'
+input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/openreview/output-dp-tuned/openreview-dp-tuned/'
+# input_file_path_dir = f'/home/DAIR/zouty/ModelFederation/temp/ZeroGen/banking/output-dp-tuned/banking-dp-tuned/'
 
 # Function to modify each JSON object
 def modify_json_object(json_obj, counter):
@@ -75,7 +81,10 @@ if TASK_NAME == 'imdb':
                 print(_temp)
                 _temp = _temp.split('_')
                 MODEL_NAME = _temp[0]
-                SAMPLE_COUNT = int(_temp[-1].split('[')[-1].strip('[]'))
+                try:
+                    SAMPLE_COUNT = int(_temp[-1].split('[')[-1].strip('[]'))
+                except:
+                    SAMPLE_COUNT = 6000
                 # if (not 'gpt2' in MODEL_NAME) or (SAMPLE_COUNT != 20000):
                 #     continue
                 print(f'MODEL_NAME={MODEL_NAME}, SAMPLE_COUNT={SAMPLE_COUNT}')            
@@ -110,9 +119,15 @@ else:
                 MODEL_NAME = _temp[-2][0]
                 if 'k' in _temp[-3]:
                     _temp[-3] = _temp[-3].split('-')[-1]
-                    SAMPLE_COUNT = int(_temp[-3].split('[')[-1].strip('[]').strip('k'))*1000
+                    try:
+                        SAMPLE_COUNT = int(_temp[-3].split('[')[-1].strip('[]').strip('k'))*1000
+                    except:
+                        SAMPLE_COUNT = 6000
                 else:
-                    SAMPLE_COUNT = int(_temp[-3].split('[')[-1].strip('[]'))
+                    try:
+                        SAMPLE_COUNT = int(_temp[-3].split('[')[-1].strip('[]'))
+                    except:
+                        SAMPLE_COUNT = 6000
                 # if (not 'gpt2' in MODEL_NAME) or (SAMPLE_COUNT != 20000):
                 #     continue
                 print(f'MODEL_NAME={MODEL_NAME}, SAMPLE_COUNT={SAMPLE_COUNT}')            

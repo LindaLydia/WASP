@@ -236,9 +236,10 @@ def weight_decay(args, current_outer_iter_trained_model, train_data, theta_mappe
     return theta_mapped, model_total_acc
 
 
-def weight_decay_qa(args, current_outer_iter_trained_model, train_data, theta_mapped, beta, _type="none", single_dataset=False, use_soft_label=False):
+def weight_decay_qa(args, current_outer_iter_trained_model, train_data, theta_mapped, beta, _type="none", single_dataset=False, use_soft_label=False, num_models=-1):
     
-    num_models = args.len_LLM
+    if num_models <= 0:
+        num_models = args.len_LLM
     if single_dataset:
         num_models = 1
         _type =  _type.replace('NoSelf','')

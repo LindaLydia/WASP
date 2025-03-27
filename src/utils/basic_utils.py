@@ -202,7 +202,69 @@ def merge_all_dataset(args, datasets, max_sample_count_for_total=100):
     # accumulate_sampels = torch.tensor(accumulate_sampels, dtype=torch.long).to(args.device)
     # ############### prepare total_data ###############
     return total_dataset
-     
+
+
+def merge_all_dataset_qa(args, datasets, max_sample_count_for_total=100):
+    if max_sample_count_for_total != -1:
+        max_sample_count_for_each = max_sample_count_for_total // len(datasets)
+    else:
+        max_sample_count_for_each = -1
+    # ############### prepare total_data ###############
+    # accumulate_sampels = [0]
+    if args.small_model_name.upper() == 'LSTM':
+        total_data = []
+        for _dataset in datasets:
+            _dataset_examples = _dataset.examples[:-1] + [_dataset.examples[-1]]
+            random.shuffle(_dataset_examples)
+            if max_sample_count_for_each != -1:
+                print(f"{len(_dataset_examples)=}, use {min(len(_dataset_examples),max_sample_count_for_each)} samples")
+                total_data += copy.deepcopy(_dataset_examples[:min(len(_dataset_examples),max_sample_count_for_each)])
+            else:
+                print(f"{len(_dataset_examples)=}, use {len(_dataset_examples)} samples")
+                total_data += copy.deepcopy(_dataset_examples[:])
+            # accumulate_sampels.append(accumulate_sampels[-1]+len(_dataset_examples)) 
+        for _i in range(len(total_data)):
+            total_data[_i].idx = _i
+        total_dataset = data.Dataset(total_data, datasets[0].fields)
+    elif any(substring in args.small_model_name.lower() for substring in SMALL_MODEL_WITH_TOKENIZER):
+        _id = 0
+        total_dataset = TokenizedDataset(
+            file_path=(''),
+        )        
+        total_dataset.context = [] # clear all the samples
+        total_dataset.question = [] # clear all the samples
+        total_dataset.ids = [] # clear all the samples
+        total_dataset.attention_mask = [] # clear all the samples
+        total_dataset.offset_mapping = [] # clear all the samples
+        total_dataset.sample_mapping = [] # clear all the samples
+        total_dataset.label = [] # clear all the samples
+        total_dataset.idx = [] # clear all the samples
+        total_dataset.is_syn = [] # clear all the samples
+        for row in range(len(datasets)):
+            # accumulate_sampels.append(accumulate_sampels[-1]+len(datasets[row].idx))
+            idx_list = [_i for _i in range(len(datasets[row].idx))]
+            if max_sample_count_for_each != -1 and max_sample_count_for_each < len(datasets[row].idx):
+                random.shuffle(idx_list)
+                idx_list = idx_list[:min(len(datasets[row].idx),max_sample_count_for_each)]
+                print(f"{len(datasets[row].idx)=}, use {min(len(datasets[row].idx),max_sample_count_for_each)} samples")
+            else:
+                idx_list = idx_list[:]
+                print(f"{len(datasets[row].idx)=}, use {len(datasets[row].idx)} samples")
+            for column in idx_list:
+                total_dataset.context += [datasets[row].context[column]]
+                total_dataset.question += [datasets[row].question[column]]
+                total_dataset.ids += [datasets[row].ids[column]]
+                total_dataset.attention_mask += [datasets[row].attention_mask[column]]
+                total_dataset.offset_mapping += [datasets[row].offset_mapping[column]]
+                total_dataset.sample_mapping += [datasets[row].sample_mapping[column]]
+                total_dataset.label += [datasets[row].label[column]]
+                total_dataset.idx += [_id]
+                total_dataset.is_syn += [datasets[row].is_syn[column]]
+                _id += 1
+    # accumulate_sampels = torch.tensor(accumulate_sampels, dtype=torch.long).to(args.device)
+    # ############### prepare total_data ###############
+    return total_dataset
+
 
 def split_gold_data_for_parties(args, total_data):
     if args.gold_party_num == 1:
@@ -238,6 +300,24 @@ def save_gold_sample_file(to_path, data):
                 "C": data.text[_i_data], 
                 "X": None, 
                 "Y": int(data.label[_i_data].item()), 
+                "idx": counter
+            }
+            counter += 1
+            # Write the modified JSON object to the output file
+            writer.write(json_obj)
+    print(f"Finish saving gold data with {counter} samples")
+
+
+def save_gold_sample_file_qa(to_path, data):
+    counter = 0
+    with jsonlines.open(to_path, 'w') as writer:
+        for _i_data in range(len(data)):
+            # print(f"{len(data.text)=}, {_i_data=}")
+            json_obj = {
+                "context": data.context[_i_data], 
+                "question": data.question[_i_data], 
+                "answers": data.label[_i_data], 
+                # "id": data.id[_i_data],
                 "idx": counter
             }
             counter += 1

@@ -874,6 +874,15 @@ ATTRIBUTE_LABELS = { # all attribute labels for a specific task
         "Unsupervised and Self-supervised learning"], # len(unique_label1)=12
 }
 
+
+FEW_SHOT_PROMPT_WITH_GOOD_AND_BAD = {
+    'squad': {
+        "task_name": "squad",
+        "stage": "x2",
+        "instruction": "{}\nBased on the above examples of bad and good Context-Question pairs, analyze the differences between the bad and good samples. Generate a new question that is diverse in expression compared to the given good samples and further refined than the good samples and further from the bad samples. The context is: \"<C>\"\n\"<Y>\" is the answer of the following question: \""
+    },
+}
+
 FEW_SHOT_PROMPT_PER_CLASS_WITH_GOOD_AND_BAD = {
     'imdb': {
         "task_name": "imdb",

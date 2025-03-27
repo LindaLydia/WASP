@@ -260,6 +260,11 @@ PE_PROMPT = {
             }
         }
     },
+    'squad': {
+        "task_name": "squad",
+        "stage": "x2",
+        "instruction": "Please mimic the question in the following Question-Context pair {} and ask a new question of the given context:\n {}\n"
+    }
 }
 
 
@@ -268,15 +273,20 @@ def get_pe_prompt(args):
         selected_style = ALL_STYLES[random.randrange(len(ALL_STYLES))]
     elif 'yelp' in args.task_name:
         selected_style = ALL_STYLES[random.randrange(len(ALL_STYLES))]
+    elif 'squad' in args.task_name:
+        selected_style = ALL_STYLES[random.randrange(len(ALL_STYLES))]
     elif 'openreview' in args.task_name:
         selected_style = ALL_OPENREVIEW_STYLES[random.randrange(len(ALL_OPENREVIEW_STYLES))]
     elif 'banking' in args.task_name:
         selected_style = ALL_STYLES[random.randrange(len(ALL_STYLES))]
     
     prompt = copy.deepcopy(PE_PROMPT[args.task_name])
-    for i_label, label in enumerate(prompt["labels"].keys()):
-        # print(f'[debug] in <aug_pe_utils.py>, {prompt["labels"][label]["instruction"].format(selected_style, "{}")=}, {selected_style=}, {label=}')
-        prompt["labels"][label]["instruction"] = copy.deepcopy(prompt["labels"][label]["instruction"].format(selected_style, "{}"))
+    if 'squad' in args.task_name:
+        prompt["instruction"] = copy.deepcopy(prompt["instruction"].format(selected_style, "{}"))
+    else:
+        for i_label, label in enumerate(prompt["labels"].keys()):
+            # print(f'[debug] in <aug_pe_utils.py>, {prompt["labels"][label]["instruction"].format(selected_style, "{}")=}, {selected_style=}, {label=}')
+            prompt["labels"][label]["instruction"] = copy.deepcopy(prompt["labels"][label]["instruction"].format(selected_style, "{}"))
 
     # if variation_type == "yelp_rephrase_tone":
     #     selected_style = ALL_styles[random.randrange(len(ALL_styles))]
