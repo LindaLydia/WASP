@@ -3167,7 +3167,7 @@ if __name__ == "__main__":
     print(f"learning rate: {args.inner_lr}")
     print(f"seed: {args.seed}")
 
-    args.metric = load_metric('squad' if 'squad' in args.task_name else 'squad')
+    args.metric = load_metric(('squad' if 'squad' in args.task_name else 'squad'), experiment_id=f'{args.task_name}_{args.llms}_{args.gen_sample_select}')
 
     # prepare STM that does not depends on the dataset vocabulary here
     if 'bert' in args.small_model_name.lower():
