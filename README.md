@@ -34,7 +34,7 @@ This is the repository for paper **Contrastive Private Data Synthesis via Weight
 ### 2. Main Experiments
 See `./src/run.sh`. The first instruction produces the results of WASP with IMDb dataset while the following 6 instruction produces the results for the most important PE series baselines (Aug-PE as we do on text tasks).
 
-For real world private data, we randomly select samples from the training set of the related well-defined datasets (see `./src/data/`). For DP synthetic datasets, the starting data produced following [ZeroGen]() without the help of real private sample information are placed within `./src/data_accumulate_start/`. Other data that are produced under the guidance of private samples will be stored automatically under `./src/data_accumulate/` after running the experiments.
+For real world private data, we randomly select samples from the training set of the related well-defined datasets (see `./src/data/`). For DP synthetic datasets, the starting data produced following [ZeroGen](https://github.com/jiacheng-ye/ZeroGen) without the help of real private sample information are placed within `./src/data_accumulate_start/`. Other data that are produced under the guidance of private samples will be stored automatically under `./src/data_accumulate/` after running the experiments.
 
 ### 3. Citation and Reference
 ```
