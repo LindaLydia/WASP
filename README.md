@@ -1,6 +1,9 @@
-# PrivateGenerateEnhancement
+# WASP
 
-## Environmental Setup
+This is the repository for paper **Contrastive Private Data Synthesis via Weighted Multi-PLM Fusion** published in ICLR 2025 Workshop on Navigating and Addressing Data Problems for Foundation Models (see [link](https://openreview.net/forum?id=CPOFZJ8DlT)).
+
+
+## 1. Environmental Setup
 1. Please make sure that your cuda>=12.1.
 2. Run the following command. Use `-i https://pypi.tuna.tsinghua.edu.cn/simple` to accelerate pip installation if necessary.
     ```bash
@@ -27,3 +30,20 @@
     pip install sentencepiece==0.1.96 datasets==2.19.1
     pip install bitsandbytes==0.44.1
     ```
+
+### 2. Main Experiments
+See `./src/run.sh`. The first instruction produces the results of WASP with IMDb dataset while the following 6 instruction produces the results for the most important PE series baselines (Aug-PE as we do on text tasks).
+
+For real world private data, we randomly select samples from the training set of the related well-defined datasets (see `./src/data/`). For DP synthetic datasets, the starting data produced following [ZeroGen]() without the help of real private sample information are placed within `./src/data_accumulate_start/`. Other data that are produced under the guidance of private samples will be stored automatically under `./src/data_accumulate/` after running the experiments.
+
+### 3. Citation and Reference
+```
+@inproceedings{
+    zou2025contrastive,
+    title={{Contrastive Private Data Synthesis via Weighted Multi-PLM Fusion}},
+    author={Tianyuan Zou and Yang Liu and Peng Li and Yufei Xiong and Jianqing Zhang and Jingjing Liu and Ye Ouyang and Xiaozhou Ye and Yaqin Zhang},
+    booktitle={ICLR 2025 Workshop on Navigating and Addressing Data Problems for Foundation Models},
+    year={2025},
+    url={https://openreview.net/forum?id=CPOFZJ8DlT}
+}
+```

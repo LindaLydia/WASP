@@ -1,9 +1,9 @@
 # personalized
-src/data/
-src/*data/
-src/data_flip/
-src/data_new/
-src/data_*/
+# src/data/
+# src/*data/
+# src/data_flip/
+# src/data_new/
+# src/data_*/
 src/figure/
 src/logging/
 src/results/
