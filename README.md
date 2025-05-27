@@ -1,6 +1,6 @@
 # WASP
 
-This is the repository for paper **Contrastive Private Data Synthesis via Weighted Multi-PLM Fusion** published in ICLR 2025 Workshop on Navigating and Addressing Data Problems for Foundation Models (see [link](https://openreview.net/forum?id=CPOFZJ8DlT)).
+This is the repository for paper **Contrastive Private Data Synthesis via Weighted Multi-PLM Fusion** published in ICML2025 (see [link](https://icml.cc/virtual/2025/poster/44062)) and ICLR 2025 Workshop on Navigating and Addressing Data Problems for Foundation Models (see [link](https://openreview.net/forum?id=CPOFZJ8DlT)).
 
 
 ## 1. Environmental Setup
